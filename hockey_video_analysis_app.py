@@ -207,6 +207,73 @@ def export_excel(df: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 
+def generate_tactical_patterns(df: pd.DataFrame) -> list[str]:
+    if df.empty:
+        return []
+
+    team = st.session_state.team_name
+    opp = st.session_state.opponent_name
+    patterns = []
+
+    # Aanvalsrichting eigen team
+    team_entries = df[(df["team"] == team) & (df["event"] == "Cirkelentry")]
+    if not team_entries.empty:
+        zone_counts = team_entries["zone"].value_counts()
+        total = zone_counts.sum()
+        top_zone = zone_counts.idxmax()
+        top_pct = percent(zone_counts.max(), total)
+        if top_pct >= 50:
+            patterns.append(
+                f"{top_pct:.0f}% van de cirkelentries van {team} kwam via {top_zone.lower()}."
+            )
+
+    # Aanvalsrichting tegenstander
+    opp_entries = df[(df["team"] == opp) & (df["event"] == "Cirkelentry")]
+    if not opp_entries.empty:
+        zone_counts = opp_entries["zone"].value_counts()
+        total = zone_counts.sum()
+        top_zone = zone_counts.idxmax()
+        top_pct = percent(zone_counts.max(), total)
+        if top_pct >= 50:
+            patterns.append(
+                f"{top_pct:.0f}% van de cirkelentries van {opp} kwam via {top_zone.lower()}."
+            )
+
+    # Opbouwproblemen eigen team
+    team_build_fail = len(df[(df["team"] == team) & (df["event"] == "Opbouw mislukt")])
+    if team_build_fail >= 3:
+        patterns.append(
+            f"{team} had {team_build_fail} mislukte opbouwmomenten onder druk."
+        )
+
+    # Press succes eigen team
+    team_press_success = len(df[(df["team"] == team) & (df["event"] == "Press succes")])
+    if team_press_success >= 3:
+        patterns.append(
+            f"De press van {team} leverde {team_press_success} succesvolle momenten op."
+        )
+
+    # Cirkelverdediging fouten eigen team
+    team_circle_def_errors = len(
+        df[(df["team"] == team) & (df["event"] == "Cirkelverdediging fout")]
+    )
+    if team_circle_def_errors >= 2:
+        patterns.append(
+            f"{team} maakte {team_circle_def_errors} fouten in de cirkelverdediging."
+        )
+
+    # Counterprobleem eigen team
+    team_counters_against = len(
+        df[(df["team"] == team) & (df["event"] == "Counter tegen na balverlies")]
+    )
+    if team_counters_against >= 3:
+        patterns.append(
+            f"{team} kreeg vaak counters tegen na balverlies ({team_counters_against}x)."
+        )
+
+    return patterns
+
+
 def generate_report(df: pd.DataFrame) -> str:
     team = st.session_state.team_name
     opp = st.session_state.opponent_name
@@ -255,6 +322,8 @@ def generate_report(df: pd.DataFrame) -> str:
     if not coach_points:
         coach_points.append(f"{team} laat een redelijk gebalanceerd profiel zien zonder één dominante zwakte in de getagde data.")
 
+    tactical_patterns = generate_tactical_patterns(df)
+
     lines = [
         f"{team} had {team_entries} cirkelentries, {team_shots} schoten en {team_goals} goals.",
         f"{opp} had {opp_entries} cirkelentries, {opp_shots} schoten en {opp_goals} goals.",
@@ -265,9 +334,18 @@ def generate_report(df: pd.DataFrame) -> str:
         f"{team} noteerde {team_high_wins} hoge balveroveringen, {team_turnovers_own} turnovers in eigen helft en {team_counters_against} counters tegen.",
         f"{opp} noteerde {opp_high_wins} hoge balveroveringen, {opp_turnovers_own} turnovers in eigen helft en {opp_counters_against} counters tegen.",
         "",
-        "Coachconclusies:",
+        "Tactische patronen:",
     ]
+
+    if tactical_patterns:
+        lines.extend([f"- {pattern}" for pattern in tactical_patterns[:5]])
+    else:
+        lines.append("- Nog geen duidelijke tactische patronen zichtbaar in de getagde data.")
+
+    lines.append("")
+    lines.append("Coachconclusies:")
     lines.extend([f"- {point}" for point in coach_points[:3]])
+
     return "\n".join(lines)
 
 
@@ -403,6 +481,14 @@ with left:
     if c3.button("Counter tegen", use_container_width=True):
         add_event(st.session_state.team_name, "Counter tegen na balverlies")
 
+    d1, d2, d3 = st.columns(3)
+    if d1.button("Opbouw mislukt", use_container_width=True):
+        add_event(st.session_state.team_name, "Opbouw mislukt")
+    if d2.button("Press succes", use_container_width=True):
+        add_event(st.session_state.team_name, "Press succes")
+    if d3.button("Cirkelverdediging fout", use_container_width=True):
+        add_event(st.session_state.team_name, "Cirkelverdediging fout")
+
 with right:
     st.markdown(f"**{st.session_state.opponent_name}**")
     a1, a2, a3 = st.columns(3)
@@ -432,6 +518,14 @@ with right:
         add_event(st.session_state.opponent_name, "Turnover eigen helft")
     if c3.button("Counter tegen teg.", use_container_width=True):
         add_event(st.session_state.opponent_name, "Counter tegen na balverlies")
+
+    d1, d2, d3 = st.columns(3)
+    if d1.button("Opbouw mislukt teg.", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Opbouw mislukt")
+    if d2.button("Press succes teg.", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Press succes")
+    if d3.button("Cirkelverdediging fout teg.", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Cirkelverdediging fout")
 
 st.divider()
 
@@ -481,6 +575,14 @@ with tab_dashboard:
         r3[1].metric(f"Shot rate {opp}", f"{opp_shot_rate:.0f}%")
         r3[2].metric(f"Hoge balveroveringen {team}", team_high_wins)
         r3[3].metric(f"Counters tegen {team}", team_counters_against)
+
+        tactical_patterns = generate_tactical_patterns(df)
+        st.subheader("Tactische patronen")
+        if tactical_patterns:
+            for pattern in tactical_patterns:
+                st.write(f"- {pattern}")
+        else:
+            st.write("- Nog geen duidelijke tactische patronen zichtbaar.")
 
         st.subheader("Overzicht per kwart")
         quarter_summary = (
