@@ -1,7 +1,13 @@
 import streamlit as st
 import pandas as pd
 import time
+import uuid
 from io import BytesIO
+
+try:
+    from supabase import create_client
+except Exception:
+    create_client = None
 
 st.set_page_config(page_title="Hockey Coach Analyse Tool", layout="wide")
 
@@ -18,7 +24,7 @@ DEFAULTS = {
     "opponent_name": "Tegenstander",
     "score_team": 0,
     "score_opponent": 0,
-    "selected_tab": "Dashboard",
+    "match_id": "wedstrijd-1",
 }
 
 for key, value in DEFAULTS.items():
@@ -57,6 +63,80 @@ def recalc_score() -> None:
     st.session_state.score_opponent = opponent_score
 
 
+def normalize_event_row(row: dict) -> dict:
+    return {
+        "id": row.get("id", str(uuid.uuid4())),
+        "match_id": row.get("match_id", st.session_state.match_id),
+        "quarter": row.get("quarter", "Q1"),
+        "time": row.get("time", "00:00"),
+        "team": row.get("team", ""),
+        "event": row.get("event", ""),
+        "zone": row.get("zone", ""),
+        "phase": row.get("phase", ""),
+        "outcome": row.get("outcome", ""),
+        "notes": row.get("notes", ""),
+        "created_at": row.get("created_at", time.time()),
+    }
+
+
+def get_supabase_client():
+    if create_client is None:
+        return None
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        return create_client(url, key)
+    except Exception:
+        return None
+
+
+def cloud_enabled() -> bool:
+    return get_supabase_client() is not None
+
+
+def load_events_from_cloud(match_id: str) -> list:
+    client = get_supabase_client()
+    if client is None:
+        return []
+    response = (
+        client.table("match_events")
+        .select("*")
+        .eq("match_id", match_id)
+        .order("created_at")
+        .execute()
+    )
+    return [normalize_event_row(r) for r in (response.data or [])]
+
+
+def sync_from_cloud() -> None:
+    if not cloud_enabled():
+        return
+    st.session_state.events = load_events_from_cloud(st.session_state.match_id)
+    recalc_score()
+
+
+def save_event_to_cloud(event_row: dict) -> None:
+    client = get_supabase_client()
+    if client is None:
+        return
+    client.table("match_events").insert(event_row).execute()
+
+
+def delete_last_event_cloud() -> None:
+    client = get_supabase_client()
+    if client is None or not st.session_state.events:
+        return
+    last_id = st.session_state.events[-1]["id"]
+    client.table("match_events").delete().eq("id", last_id).execute()
+
+
+def reset_match_cloud() -> None:
+    client = get_supabase_client()
+    if client is None:
+        return
+    client.table("match_events").delete().eq("match_id", st.session_state.match_id).execute()
+
+
 def add_event(
     team: str,
     event: str,
@@ -65,8 +145,10 @@ def add_event(
     outcome: str = "",
     notes: str = "",
 ) -> None:
-    st.session_state.events.append(
+    event_row = normalize_event_row(
         {
+            "id": str(uuid.uuid4()),
+            "match_id": st.session_state.match_id,
             "quarter": st.session_state.quarter,
             "time": current_time_str(),
             "team": team,
@@ -75,27 +157,37 @@ def add_event(
             "phase": phase,
             "outcome": outcome,
             "notes": notes,
+            "created_at": time.time(),
         }
     )
+    st.session_state.events.append(event_row)
     recalc_score()
+    if cloud_enabled():
+        save_event_to_cloud(event_row)
 
 
 def build_df() -> pd.DataFrame:
     if not st.session_state.events:
         return pd.DataFrame(
-            columns=["quarter", "time", "team", "event", "zone", "phase", "outcome", "notes"]
+            columns=[
+                "id",
+                "match_id",
+                "quarter",
+                "time",
+                "team",
+                "event",
+                "zone",
+                "phase",
+                "outcome",
+                "notes",
+                "created_at",
+            ]
         )
     return pd.DataFrame(st.session_state.events)
 
 
 def count_events(df: pd.DataFrame, team: str, event: str) -> int:
     return len(df[(df["team"] == team) & (df["event"] == event)])
-
-
-def count_zone_entries(df: pd.DataFrame, team: str, zone: str) -> int:
-    return len(
-        df[(df["team"] == team) & (df["event"] == "Cirkelentry") & (df["zone"] == zone)]
-    )
 
 
 def percent(numerator: int, denominator: int) -> float:
@@ -183,7 +275,7 @@ def generate_report(df: pd.DataFrame) -> str:
 # Header
 # -----------------------------
 st.title("🏑 Hockey Coach Analyse Tool")
-st.write("Een coachdashboard voor videoanalyse, wedstrijdtagging, statistieken en een automatisch wedstrijdrapport.")
+st.write("Een coachdashboard voor videoanalyse, wedstrijdtagging, statistieken en live synchronisatie tussen iPad en MacBook.")
 
 name_col1, name_col2, name_col3 = st.columns([1, 1, 1])
 with name_col1:
@@ -192,6 +284,22 @@ with name_col2:
     st.text_input("Naam tegenstander", key="opponent_name")
 with name_col3:
     st.selectbox("Kwart", ["Q1", "Q2", "Q3", "Q4"], key="quarter")
+
+sync1, sync2, sync3 = st.columns([2, 1, 1])
+with sync1:
+    st.text_input("Wedstrijd-ID", key="match_id")
+with sync2:
+    if st.button("Laad wedstrijd", use_container_width=True):
+        sync_from_cloud()
+with sync3:
+    if st.button("Nieuwe ID", use_container_width=True):
+        st.session_state.match_id = f"wedstrijd-{uuid.uuid4().hex[:6]}"
+        st.rerun()
+
+if cloud_enabled():
+    st.success("Cloud sync staat aan. Tags op iPad en MacBook delen dezelfde wedstrijd-ID.")
+else:
+    st.warning("Cloud sync staat nog uit. Voeg later SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
 
 video = st.file_uploader("Upload wedstrijdvideo", type=["mp4", "mov", "avi", "m4v"])
 if video:
@@ -209,6 +317,20 @@ status3.metric("Huidig kwart", st.session_state.quarter)
 status4.metric("Wedstrijdtijd", current_time_str())
 
 st.divider()
+
+# -----------------------------
+# Auto sync fragment
+# -----------------------------
+@st.fragment(run_every="5s" if cloud_enabled() else None)
+def auto_sync_cloud():
+    if cloud_enabled() and st.session_state.match_id:
+        fresh = load_events_from_cloud(st.session_state.match_id)
+        if len(fresh) != len(st.session_state.events):
+            st.session_state.events = fresh
+            recalc_score()
+        st.caption(f"Laatste cloud-sync: {time.strftime('%H:%M:%S')}")
+
+auto_sync_cloud()
 
 # -----------------------------
 # Clock
@@ -333,9 +455,7 @@ with tab_dashboard:
         team_goals = count_events(df, team, "Goal")
         opp_goals = count_events(df, opp, "Goal")
         team_high_wins = count_events(df, team, "Hoge balverovering")
-        opp_high_wins = count_events(df, opp, "Hoge balverovering")
         team_counters_against = count_events(df, team, "Counter tegen na balverlies")
-        opp_counters_against = count_events(df, opp, "Counter tegen na balverlies")
         team_shot_rate = percent(team_shots, team_entries)
         opp_shot_rate = percent(opp_shots, opp_entries)
         team_conversion = percent(team_goals, team_shots)
@@ -536,13 +656,18 @@ with tab_eventlog:
     with c3:
         if st.button("Laatste event verwijderen", use_container_width=True):
             if st.session_state.events:
-                st.session_state.events.pop()
-                recalc_score()
+                if cloud_enabled():
+                    delete_last_event_cloud()
+                    sync_from_cloud()
+                else:
+                    st.session_state.events.pop()
+                    recalc_score()
                 st.rerun()
 
     if st.button("Reset alles", use_container_width=True):
+        if cloud_enabled():
+            reset_match_cloud()
         st.session_state.events = []
         st.session_state.score_team = 0
         st.session_state.score_opponent = 0
         st.rerun()
-
