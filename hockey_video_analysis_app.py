@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import time
@@ -9,11 +10,15 @@ try:
 except Exception:
     create_client = None
 
-st.set_page_config(page_title="Hockey Coach Analyse Tool", layout="wide")
 
-# -----------------------------
-# State
-# -----------------------------
+st.set_page_config(
+    page_title="Hockey Coach Analyse Tool V2",
+    layout="wide",
+)
+
+# --------------------------------------------------
+# Defaults
+# --------------------------------------------------
 DEFAULTS = {
     "events": [],
     "timer_running": False,
@@ -25,6 +30,7 @@ DEFAULTS = {
     "score_team": 0,
     "score_opponent": 0,
     "match_id": "wedstrijd-1",
+    "last_sync_time": None,
 }
 
 for key, value in DEFAULTS.items():
@@ -32,13 +38,14 @@ for key, value in DEFAULTS.items():
         st.session_state[key] = value
 
 
-# -----------------------------
+# --------------------------------------------------
 # Helpers
-# -----------------------------
+# --------------------------------------------------
 def current_elapsed_seconds() -> int:
     if st.session_state.timer_running and st.session_state.start_time is not None:
         return int(
-            st.session_state.elapsed_before_run + (time.time() - st.session_state.start_time)
+            st.session_state.elapsed_before_run
+            + (time.time() - st.session_state.start_time)
         )
     return int(st.session_state.elapsed_before_run)
 
@@ -48,19 +55,6 @@ def current_time_str() -> str:
     minutes = total // 60
     seconds = total % 60
     return f"{minutes:02d}:{seconds:02d}"
-
-
-def recalc_score() -> None:
-    team_score = 0
-    opponent_score = 0
-    for e in st.session_state.events:
-        if e["event"] == "Goal":
-            if e["team"] == st.session_state.team_name:
-                team_score += 1
-            elif e["team"] == st.session_state.opponent_name:
-                opponent_score += 1
-    st.session_state.score_team = team_score
-    st.session_state.score_opponent = opponent_score
 
 
 def normalize_event_row(row: dict) -> dict:
@@ -79,6 +73,81 @@ def normalize_event_row(row: dict) -> dict:
     }
 
 
+def build_df() -> pd.DataFrame:
+    cols = [
+        "id",
+        "match_id",
+        "quarter",
+        "time",
+        "team",
+        "event",
+        "zone",
+        "phase",
+        "outcome",
+        "notes",
+        "created_at",
+    ]
+    if not st.session_state.events:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(st.session_state.events)
+    for col in cols:
+        if col not in df.columns:
+            df[col] = ""
+    return df[cols]
+
+
+def count_events(df: pd.DataFrame, team: str, event: str) -> int:
+    if df.empty:
+        return 0
+    return len(df[(df["team"] == team) & (df["event"] == event)])
+
+
+def percent(numerator: int, denominator: int) -> float:
+    return (numerator / denominator * 100) if denominator > 0 else 0.0
+
+
+def recalc_score() -> None:
+    df = build_df()
+    st.session_state.score_team = count_events(df, st.session_state.team_name, "Goal")
+    st.session_state.score_opponent = count_events(
+        df, st.session_state.opponent_name, "Goal"
+    )
+
+
+def set_new_match_id() -> None:
+    st.session_state.match_id = f"wedstrijd-{uuid.uuid4().hex[:6]}"
+
+
+def export_excel(df: pd.DataFrame) -> bytes:
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="Eventlog", index=False)
+
+        if not df.empty:
+            summary = (
+                df.groupby(["quarter", "team", "event"])
+                .size()
+                .reset_index(name="aantal")
+                .sort_values(["quarter", "team", "event"])
+            )
+            summary.to_excel(writer, sheet_name="Samenvatting", index=False)
+
+            zone_summary = (
+                df[df["event"] == "Cirkelentry"]
+                .groupby(["quarter", "team", "zone"])
+                .size()
+                .reset_index(name="aantal")
+                .sort_values(["quarter", "team", "zone"])
+            )
+            zone_summary.to_excel(writer, sheet_name="Zones", index=False)
+
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+# --------------------------------------------------
+# Supabase
+# --------------------------------------------------
 def get_supabase_client():
     if create_client is None:
         return None
@@ -98,6 +167,7 @@ def load_events_from_cloud(match_id: str) -> list:
     client = get_supabase_client()
     if client is None:
         return []
+
     response = (
         client.table("match_events")
         .select("*")
@@ -106,13 +176,6 @@ def load_events_from_cloud(match_id: str) -> list:
         .execute()
     )
     return [normalize_event_row(r) for r in (response.data or [])]
-
-
-def sync_from_cloud() -> None:
-    if not cloud_enabled():
-        return
-    st.session_state.events = load_events_from_cloud(st.session_state.match_id)
-    recalc_score()
 
 
 def save_event_to_cloud(event_row: dict) -> None:
@@ -137,6 +200,17 @@ def reset_match_cloud() -> None:
     client.table("match_events").delete().eq("match_id", st.session_state.match_id).execute()
 
 
+def sync_from_cloud() -> None:
+    if not cloud_enabled():
+        return
+    st.session_state.events = load_events_from_cloud(st.session_state.match_id)
+    recalc_score()
+    st.session_state.last_sync_time = time.strftime("%H:%M:%S")
+
+
+# --------------------------------------------------
+# Events
+# --------------------------------------------------
 def add_event(
     team: str,
     event: str,
@@ -160,53 +234,38 @@ def add_event(
             "created_at": time.time(),
         }
     )
+
     st.session_state.events.append(event_row)
     recalc_score()
+
     if cloud_enabled():
         save_event_to_cloud(event_row)
 
 
-def build_df() -> pd.DataFrame:
+def remove_last_event() -> None:
     if not st.session_state.events:
-        return pd.DataFrame(
-            columns=[
-                "id",
-                "match_id",
-                "quarter",
-                "time",
-                "team",
-                "event",
-                "zone",
-                "phase",
-                "outcome",
-                "notes",
-                "created_at",
-            ]
-        )
-    return pd.DataFrame(st.session_state.events)
+        return
+
+    if cloud_enabled():
+        delete_last_event_cloud()
+        sync_from_cloud()
+    else:
+        st.session_state.events.pop()
+        recalc_score()
 
 
-def count_events(df: pd.DataFrame, team: str, event: str) -> int:
-    return len(df[(df["team"] == team) & (df["event"] == event)])
+def reset_all() -> None:
+    if cloud_enabled():
+        reset_match_cloud()
+
+    st.session_state.events = []
+    st.session_state.score_team = 0
+    st.session_state.score_opponent = 0
 
 
-def percent(numerator: int, denominator: int) -> float:
-    return (numerator / denominator * 100) if denominator > 0 else 0.0
-
-
-def export_excel(df: pd.DataFrame) -> bytes:
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="Eventlog", index=False)
-        if not df.empty:
-            summary = (
-                df.groupby(["quarter", "team", "event"]).size().reset_index(name="aantal")
-            )
-            summary.to_excel(writer, sheet_name="Samenvatting", index=False)
-    buffer.seek(0)
-    return buffer.getvalue()
-
-
+# --------------------------------------------------
+# Analysis
+# --------------------------------------------------
 def generate_tactical_patterns(df: pd.DataFrame) -> list[str]:
     if df.empty:
         return []
@@ -215,7 +274,6 @@ def generate_tactical_patterns(df: pd.DataFrame) -> list[str]:
     opp = st.session_state.opponent_name
     patterns = []
 
-    # Aanvalsrichting eigen team
     team_entries = df[(df["team"] == team) & (df["event"] == "Cirkelentry")]
     if not team_entries.empty:
         zone_counts = team_entries["zone"].value_counts()
@@ -227,7 +285,6 @@ def generate_tactical_patterns(df: pd.DataFrame) -> list[str]:
                 f"{top_pct:.0f}% van de cirkelentries van {team} kwam via {top_zone.lower()}."
             )
 
-    # Aanvalsrichting tegenstander
     opp_entries = df[(df["team"] == opp) & (df["event"] == "Cirkelentry")]
     if not opp_entries.empty:
         zone_counts = opp_entries["zone"].value_counts()
@@ -239,21 +296,18 @@ def generate_tactical_patterns(df: pd.DataFrame) -> list[str]:
                 f"{top_pct:.0f}% van de cirkelentries van {opp} kwam via {top_zone.lower()}."
             )
 
-    # Opbouwproblemen eigen team
     team_build_fail = len(df[(df["team"] == team) & (df["event"] == "Opbouw mislukt")])
     if team_build_fail >= 3:
         patterns.append(
             f"{team} had {team_build_fail} mislukte opbouwmomenten onder druk."
         )
 
-    # Press succes eigen team
     team_press_success = len(df[(df["team"] == team) & (df["event"] == "Press succes")])
     if team_press_success >= 3:
         patterns.append(
             f"De press van {team} leverde {team_press_success} succesvolle momenten op."
         )
 
-    # Cirkelverdediging fouten eigen team
     team_circle_def_errors = len(
         df[(df["team"] == team) & (df["event"] == "Cirkelverdediging fout")]
     )
@@ -262,7 +316,6 @@ def generate_tactical_patterns(df: pd.DataFrame) -> list[str]:
             f"{team} maakte {team_circle_def_errors} fouten in de cirkelverdediging."
         )
 
-    # Counterprobleem eigen team
     team_counters_against = len(
         df[(df["team"] == team) & (df["event"] == "Counter tegen na balverlies")]
     )
@@ -297,110 +350,87 @@ def generate_report(df: pd.DataFrame) -> str:
     team_conversion = percent(team_goals, team_shots)
     opp_conversion = percent(opp_goals, opp_shots)
 
-    entries = df[df["event"] == "Cirkelentry"].copy()
     team_main_flank = "onbekend"
     opp_main_flank = "onbekend"
-    if not entries.empty:
-        team_zones = entries[entries["team"] == team]["zone"].value_counts()
-        opp_zones = entries[entries["team"] == opp]["zone"].value_counts()
-        if not team_zones.empty:
-            team_main_flank = team_zones.idxmax().lower()
-        if not opp_zones.empty:
-            opp_main_flank = opp_zones.idxmax().lower()
+
+    team_zone_counts = (
+        df[(df["team"] == team) & (df["event"] == "Cirkelentry")]["zone"].value_counts()
+    )
+    opp_zone_counts = (
+        df[(df["team"] == opp) & (df["event"] == "Cirkelentry")]["zone"].value_counts()
+    )
+
+    if not team_zone_counts.empty:
+        team_main_flank = team_zone_counts.idxmax().lower()
+    if not opp_zone_counts.empty:
+        opp_main_flank = opp_zone_counts.idxmax().lower()
 
     coach_points = []
     if team_entries > 0 and team_shot_rate < 40:
-        coach_points.append(f"{team} komt wel in de cirkel, maar zet te weinig entries om in schoten.")
+        coach_points.append(
+            f"{team} komt wel in de cirkel, maar zet te weinig entries om in schoten."
+        )
     if team_shots > 0 and team_conversion < 20:
-        coach_points.append(f"{team} creëert schoten, maar de afronding is nog onvoldoende effectief.")
+        coach_points.append(
+            f"{team} creëert schoten, maar de afronding is nog onvoldoende effectief."
+        )
     if team_turnovers_own >= 3:
-        coach_points.append(f"{team} lijdt te vaak balverlies in eigen helft; restverdediging en speelrichting verdienen aandacht.")
+        coach_points.append(
+            f"{team} lijdt te vaak balverlies in eigen helft; opbouw en speelrichting verdienen aandacht."
+        )
     if team_counters_against >= 3:
-        coach_points.append(f"{team} krijgt meerdere counters tegen na balverlies; omschakeling en tegenpress moeten scherper.")
+        coach_points.append(
+            f"{team} krijgt meerdere counters tegen na balverlies; omschakeling en tegenpress moeten scherper."
+        )
     if team_high_wins >= 4:
-        coach_points.append(f"De press van {team} levert regelmatig hoge balveroveringen op en is een duidelijke kracht.")
+        coach_points.append(
+            f"De press van {team} levert regelmatig hoge balveroveringen op en is een duidelijke kracht."
+        )
     if not coach_points:
-        coach_points.append(f"{team} laat een redelijk gebalanceerd profiel zien zonder één dominante zwakte in de getagde data.")
+        coach_points.append(
+            f"{team} laat een redelijk gebalanceerd profiel zien zonder één dominante zwakte in de getagde data."
+        )
 
     tactical_patterns = generate_tactical_patterns(df)
 
     lines = [
+        f"Wedstrijd: {team} - {opp}",
+        f"Score: {team_goals}-{opp_goals}",
+        "",
         f"{team} had {team_entries} cirkelentries, {team_shots} schoten en {team_goals} goals.",
         f"{opp} had {opp_entries} cirkelentries, {opp_shots} schoten en {opp_goals} goals.",
-        f"De shot rate van {team} was {team_shot_rate:.0f}% en de conversion rate was {team_conversion:.0f}%.",
-        f"De shot rate van {opp} was {opp_shot_rate:.0f}% en de conversion rate was {opp_conversion:.0f}%.",
-        f"De meeste cirkelentries van {team} kwamen over {team_main_flank}.",
-        f"De meeste cirkelentries van {opp} kwamen over {opp_main_flank}.",
-        f"{team} noteerde {team_high_wins} hoge balveroveringen, {team_turnovers_own} turnovers in eigen helft en {team_counters_against} counters tegen.",
-        f"{opp} noteerde {opp_high_wins} hoge balveroveringen, {opp_turnovers_own} turnovers in eigen helft en {opp_counters_against} counters tegen.",
+        f"Shot rate {team}: {team_shot_rate:.0f}%",
+        f"Shot rate {opp}: {opp_shot_rate:.0f}%",
+        f"Conversion {team}: {team_conversion:.0f}%",
+        f"Conversion {opp}: {opp_conversion:.0f}%",
+        f"Meeste entries {team}: {team_main_flank}",
+        f"Meeste entries {opp}: {opp_main_flank}",
+        "",
+        f"{team} noteerde {team_high_wins} hoge balveroveringen, "
+        f"{team_turnovers_own} turnovers in eigen helft en "
+        f"{team_counters_against} counters tegen.",
+        f"{opp} noteerde {opp_high_wins} hoge balveroveringen, "
+        f"{opp_turnovers_own} turnovers in eigen helft en "
+        f"{opp_counters_against} counters tegen.",
         "",
         "Tactische patronen:",
     ]
 
     if tactical_patterns:
-        lines.extend([f"- {pattern}" for pattern in tactical_patterns[:5]])
+        lines.extend([f"- {p}" for p in tactical_patterns[:5]])
     else:
         lines.append("- Nog geen duidelijke tactische patronen zichtbaar in de getagde data.")
 
     lines.append("")
     lines.append("Coachconclusies:")
-    lines.extend([f"- {point}" for point in coach_points[:3]])
+    lines.extend([f"- {p}" for p in coach_points[:3]])
 
     return "\n".join(lines)
 
 
-def set_new_match_id() -> None:
-    st.session_state.match_id = f"wedstrijd-{uuid.uuid4().hex[:6]}"
-
-
-# -----------------------------
-# Header
-# -----------------------------
-st.title("🏑 Hockey Coach Analyse Tool")
-st.write("Een coachdashboard voor videoanalyse, wedstrijdtagging, statistieken en live synchronisatie tussen iPad en MacBook.")
-
-name_col1, name_col2, name_col3 = st.columns([1, 1, 1])
-with name_col1:
-    st.text_input("Naam eigen team", key="team_name")
-with name_col2:
-    st.text_input("Naam tegenstander", key="opponent_name")
-with name_col3:
-    st.selectbox("Kwart", ["Q1", "Q2", "Q3", "Q4"], key="quarter")
-
-sync1, sync2, sync3 = st.columns([2, 1, 1])
-with sync1:
-    st.text_input("Wedstrijd-ID", key="match_id")
-with sync2:
-    if st.button("Laad wedstrijd", use_container_width=True):
-        sync_from_cloud()
-with sync3:
-    st.button("Nieuwe ID", use_container_width=True, on_click=set_new_match_id)
-
-if cloud_enabled():
-    st.success("Cloud sync staat aan. Tags op iPad en MacBook delen dezelfde wedstrijd-ID.")
-else:
-    st.warning("Cloud sync staat nog uit. Voeg later SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
-
-video = st.file_uploader("Upload wedstrijdvideo", type=["mp4", "mov", "avi", "m4v"])
-if video:
-    st.video(video)
-
-st.divider()
-
-# -----------------------------
-# Live status
-# -----------------------------
-status1, status2, status3, status4 = st.columns(4)
-status1.metric(f"Score {st.session_state.team_name}", st.session_state.score_team)
-status2.metric(f"Score {st.session_state.opponent_name}", st.session_state.score_opponent)
-status3.metric("Huidig kwart", st.session_state.quarter)
-status4.metric("Wedstrijdtijd", current_time_str())
-
-st.divider()
-
-# -----------------------------
-# Auto sync fragment
-# -----------------------------
+# --------------------------------------------------
+# Auto fragments
+# --------------------------------------------------
 @st.fragment(run_every="5s" if cloud_enabled() else None)
 def auto_sync_cloud():
     if cloud_enabled() and st.session_state.match_id:
@@ -408,139 +438,246 @@ def auto_sync_cloud():
         if len(fresh) != len(st.session_state.events):
             st.session_state.events = fresh
             recalc_score()
-        st.caption(f"Laatst cloud-sync: {time.strftime('%H:%M:%S')}")
+        st.session_state.last_sync_time = time.strftime("%H:%M:%S")
 
-auto_sync_cloud()
-
-# -----------------------------
-# Clock
-# -----------------------------
-st.subheader("⏱ Wedstrijdklok")
 
 @st.fragment(run_every="1s" if st.session_state.timer_running else None)
 def live_clock():
     elapsed = current_elapsed_seconds()
     minutes = elapsed // 60
     seconds = elapsed % 60
+
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Tijd", f"{minutes:02d}:{seconds:02d}")
+
     if c2.button("Start", use_container_width=True):
         if not st.session_state.timer_running:
             st.session_state.start_time = time.time()
             st.session_state.timer_running = True
             st.rerun()
+
     if c3.button("Stop", use_container_width=True):
         if st.session_state.timer_running:
             st.session_state.elapsed_before_run = current_elapsed_seconds()
             st.session_state.start_time = None
             st.session_state.timer_running = False
             st.rerun()
+
     if c4.button("Reset klok", use_container_width=True):
         st.session_state.timer_running = False
         st.session_state.start_time = None
         st.session_state.elapsed_before_run = 0
         st.rerun()
 
+
+# --------------------------------------------------
+# UI
+# --------------------------------------------------
+st.title("🏑 Hockey Coach Analyse Tool V2")
+st.write("Snelle live tagging voor tijdens de wedstrijd, met simpele zones en directe rapportage.")
+
+with st.container():
+    c1, c2, c3 = st.columns([1.2, 1.2, 0.8])
+    with c1:
+        st.text_input("Naam eigen team", key="team_name")
+    with c2:
+        st.text_input("Naam tegenstander", key="opponent_name")
+    with c3:
+        st.selectbox("Kwart", ["Q1", "Q2", "Q3", "Q4"], key="quarter")
+
+with st.container():
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        st.text_input("Wedstrijd-ID", key="match_id")
+    with c2:
+        if st.button("Laad wedstrijd", use_container_width=True):
+            sync_from_cloud()
+    with c3:
+        st.button("Nieuwe ID", on_click=set_new_match_id, use_container_width=True)
+
+if cloud_enabled():
+    last_sync = st.session_state.last_sync_time or "nog niet"
+    st.success(f"Cloud sync staat aan. Laatste sync: {last_sync}")
+else:
+    st.warning("Cloud sync staat uit. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
+
+video = st.file_uploader("Upload wedstrijdvideo", type=["mp4", "mov", "avi", "m4v"])
+if video:
+    st.video(video)
+
+st.divider()
+
+score1, score2, score3, score4 = st.columns(4)
+score1.metric(f"Score {st.session_state.team_name}", st.session_state.score_team)
+score2.metric(f"Score {st.session_state.opponent_name}", st.session_state.score_opponent)
+score3.metric("Kwart", st.session_state.quarter)
+score4.metric("Wedstrijdtijd", current_time_str())
+
+auto_sync_cloud()
+
+st.divider()
+st.subheader("⏱ Wedstrijdklok")
 live_clock()
 
 st.divider()
 
-# -----------------------------
-# Tagging panel
-# -----------------------------
-st.subheader("🎯 Snelle tagging")
-left, right = st.columns(2)
-
-with left:
-    st.markdown(f"**{st.session_state.team_name}**")
-    a1, a2, a3 = st.columns(3)
-    if a1.button(f"Entry linksvoor {st.session_state.team_name} (A)", use_container_width=True):
-        add_event(st.session_state.team_name, "Cirkelentry", zone="Linksvoor")
-    if a2.button(f"Entry middenvoor {st.session_state.team_name} (S)", use_container_width=True):
-        add_event(st.session_state.team_name, "Cirkelentry", zone="Middenvoor")
-    if a3.button(f"Entry rechtsvoor {st.session_state.team_name} (D)", use_container_width=True):
-        add_event(st.session_state.team_name, "Cirkelentry", zone="Rechtsvoor")
-
-    b1, b2, b3, b4, b5 = st.columns(5)
-    if b1.button("Schot", use_container_width=True):
-        add_event(st.session_state.team_name, "Schot")
-    if b2.button("Schot op goal", use_container_width=True):
-        add_event(st.session_state.team_name, "Schot op goal")
-    if b3.button("Strafcorner", use_container_width=True):
-        add_event(st.session_state.team_name, "Strafcorner")
-    if b4.button("Goal", use_container_width=True):
-        add_event(st.session_state.team_name, "Goal")
-    if b5.button("Turnover", use_container_width=True):
-        add_event(st.session_state.team_name, "Turnover")
-
-    c1, c2, c3 = st.columns(3)
-    if c1.button("Hoge balverovering", use_container_width=True):
-        add_event(st.session_state.team_name, "Hoge balverovering")
-    if c2.button("Turnover eigen helft", use_container_width=True):
-        add_event(st.session_state.team_name, "Turnover eigen helft")
-    if c3.button("Counter tegen", use_container_width=True):
-        add_event(st.session_state.team_name, "Counter tegen na balverlies")
-
-    d1, d2, d3 = st.columns(3)
-    if d1.button("Opbouw mislukt", use_container_width=True):
-        add_event(st.session_state.team_name, "Opbouw mislukt")
-    if d2.button("Press succes", use_container_width=True):
-        add_event(st.session_state.team_name, "Press succes")
-    if d3.button("Cirkelverdediging fout", use_container_width=True):
-        add_event(st.session_state.team_name, "Cirkelverdediging fout")
-
-with right:
-    st.markdown(f"**{st.session_state.opponent_name}**")
-    a1, a2, a3 = st.columns(3)
-    if a1.button(f"Entry linksvoor {st.session_state.opponent_name} (J)", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Cirkelentry", zone="Linksvoor")
-    if a2.button(f"Entry middenvoor {st.session_state.opponent_name} (K)", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Cirkelentry", zone="Middenvoor")
-    if a3.button(f"Entry rechtsvoor {st.session_state.opponent_name} (L)", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Cirkelentry", zone="Rechtsvoor")
-
-    b1, b2, b3, b4, b5 = st.columns(5)
-    if b1.button("Schot teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Schot")
-    if b2.button("Schot op goal teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Schot op goal")
-    if b3.button("Strafcorner teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Strafcorner")
-    if b4.button("Goal teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Goal")
-    if b5.button("Turnover teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Turnover")
-
-    c1, c2, c3 = st.columns(3)
-    if c1.button("Hoge balverovering teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Hoge balverovering")
-    if c2.button("Turnover eigen helft teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Turnover eigen helft")
-    if c3.button("Counter tegen teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Counter tegen na balverlies")
-
-    d1, d2, d3 = st.columns(3)
-    if d1.button("Opbouw mislukt teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Opbouw mislukt")
-    if d2.button("Press succes teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Press succes")
-    if d3.button("Cirkelverdediging fout teg.", use_container_width=True):
-        add_event(st.session_state.opponent_name, "Cirkelverdediging fout")
+# --------------------------------------------------
+# Fast action bar
+# --------------------------------------------------
+st.subheader("⚡ Snelle acties")
+qa1, qa2, qa3 = st.columns(3)
+with qa1:
+    if st.button("↩️ Undo laatste event", use_container_width=True):
+        remove_last_event()
+        st.rerun()
+with qa2:
+    if st.button("🔄 Handmatige cloud-sync", use_container_width=True):
+        sync_from_cloud()
+        st.rerun()
+with qa3:
+    if st.button("🗑️ Reset wedstrijd", use_container_width=True):
+        reset_all()
+        st.rerun()
 
 st.divider()
 
-# -----------------------------
-# Analysis tabs
-# -----------------------------
+# --------------------------------------------------
+# Tagging
+# --------------------------------------------------
+st.subheader("🎯 Live tagging")
+
+left, right = st.columns(2)
+
+with left:
+    st.markdown(f"### 🔵 {st.session_state.team_name}")
+
+    st.markdown("**Cirkelentries**")
+    z1, z2, z3 = st.columns(3)
+    if z1.button("Linksvoor", key="team_entry_left", use_container_width=True):
+        add_event(st.session_state.team_name, "Cirkelentry", zone="Linksvoor")
+        st.rerun()
+    if z2.button("Middenvoor", key="team_entry_mid", use_container_width=True):
+        add_event(st.session_state.team_name, "Cirkelentry", zone="Middenvoor")
+        st.rerun()
+    if z3.button("Rechtsvoor", key="team_entry_right", use_container_width=True):
+        add_event(st.session_state.team_name, "Cirkelentry", zone="Rechtsvoor")
+        st.rerun()
+
+    st.markdown("**Afronding**")
+    a1, a2, a3, a4 = st.columns(4)
+    if a1.button("Schot", key="team_shot", use_container_width=True):
+        add_event(st.session_state.team_name, "Schot")
+        st.rerun()
+    if a2.button("Schot op goal", key="team_shot_goal", use_container_width=True):
+        add_event(st.session_state.team_name, "Schot op goal")
+        st.rerun()
+    if a3.button("Strafcorner", key="team_pc", use_container_width=True):
+        add_event(st.session_state.team_name, "Strafcorner")
+        st.rerun()
+    if a4.button("Goal", key="team_goal", use_container_width=True):
+        add_event(st.session_state.team_name, "Goal")
+        st.rerun()
+
+    st.markdown("**Press / omschakeling**")
+    p1, p2, p3 = st.columns(3)
+    if p1.button("Hoge balverovering", key="team_highwin", use_container_width=True):
+        add_event(st.session_state.team_name, "Hoge balverovering")
+        st.rerun()
+    if p2.button("Press succes", key="team_press", use_container_width=True):
+        add_event(st.session_state.team_name, "Press succes")
+        st.rerun()
+    if p3.button("Counter tegen", key="team_counter_against", use_container_width=True):
+        add_event(st.session_state.team_name, "Counter tegen na balverlies")
+        st.rerun()
+
+    st.markdown("**Balverlies / verdedigen**")
+    d1, d2, d3 = st.columns(3)
+    if d1.button("Turnover", key="team_turnover", use_container_width=True):
+        add_event(st.session_state.team_name, "Turnover")
+        st.rerun()
+    if d2.button("Turnover eigen helft", key="team_turnover_own", use_container_width=True):
+        add_event(st.session_state.team_name, "Turnover eigen helft")
+        st.rerun()
+    if d3.button("Cirkelverdediging fout", key="team_circle_error", use_container_width=True):
+        add_event(st.session_state.team_name, "Cirkelverdediging fout")
+        st.rerun()
+
+    if st.button("Opbouw mislukt", key="team_build_fail", use_container_width=True):
+        add_event(st.session_state.team_name, "Opbouw mislukt")
+        st.rerun()
+
+with right:
+    st.markdown(f"### 🔴 {st.session_state.opponent_name}")
+
+    st.markdown("**Cirkelentries**")
+    z1, z2, z3 = st.columns(3)
+    if z1.button("Linksvoor", key="opp_entry_left", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Cirkelentry", zone="Linksvoor")
+        st.rerun()
+    if z2.button("Middenvoor", key="opp_entry_mid", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Cirkelentry", zone="Middenvoor")
+        st.rerun()
+    if z3.button("Rechtsvoor", key="opp_entry_right", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Cirkelentry", zone="Rechtsvoor")
+        st.rerun()
+
+    st.markdown("**Afronding**")
+    a1, a2, a3, a4 = st.columns(4)
+    if a1.button("Schot", key="opp_shot", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Schot")
+        st.rerun()
+    if a2.button("Schot op goal", key="opp_shot_goal", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Schot op goal")
+        st.rerun()
+    if a3.button("Strafcorner", key="opp_pc", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Strafcorner")
+        st.rerun()
+    if a4.button("Goal", key="opp_goal", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Goal")
+        st.rerun()
+
+    st.markdown("**Press / omschakeling**")
+    p1, p2, p3 = st.columns(3)
+    if p1.button("Hoge balverovering", key="opp_highwin", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Hoge balverovering")
+        st.rerun()
+    if p2.button("Press succes", key="opp_press", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Press succes")
+        st.rerun()
+    if p3.button("Counter tegen", key="opp_counter_against", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Counter tegen na balverlies")
+        st.rerun()
+
+    st.markdown("**Balverlies / verdedigen**")
+    d1, d2, d3 = st.columns(3)
+    if d1.button("Turnover", key="opp_turnover", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Turnover")
+        st.rerun()
+    if d2.button("Turnover eigen helft", key="opp_turnover_own", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Turnover eigen helft")
+        st.rerun()
+    if d3.button("Cirkelverdediging fout", key="opp_circle_error", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Cirkelverdediging fout")
+        st.rerun()
+
+    if st.button("Opbouw mislukt", key="opp_build_fail", use_container_width=True):
+        add_event(st.session_state.opponent_name, "Opbouw mislukt")
+        st.rerun()
+
+st.divider()
+
+# --------------------------------------------------
+# Tabs
+# --------------------------------------------------
 df = build_df()
 team = st.session_state.team_name
 opp = st.session_state.opponent_name
 
-tab_dashboard, tab_attack, tab_press, tab_fieldmap, tab_report, tab_eventlog = st.tabs(
-    ["Dashboard", "Aanval", "Press/omschakeling", "Veldkaart", "Wedstrijdrapport", "Eventlog"]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["Dashboard", "Aanval", "Press/omschakeling", "Veldkaart", "Rapport", "Eventlog"]
 )
 
-with tab_dashboard:
+with tab1:
     if df.empty:
         st.info("Nog geen events toegevoegd. Start de klok en tag de wedstrijd.")
     else:
@@ -576,8 +713,8 @@ with tab_dashboard:
         r3[2].metric(f"Hoge balveroveringen {team}", team_high_wins)
         r3[3].metric(f"Counters tegen {team}", team_counters_against)
 
-        tactical_patterns = generate_tactical_patterns(df)
         st.subheader("Tactische patronen")
+        tactical_patterns = generate_tactical_patterns(df)
         if tactical_patterns:
             for pattern in tactical_patterns:
                 st.write(f"- {pattern}")
@@ -586,16 +723,19 @@ with tab_dashboard:
 
         st.subheader("Overzicht per kwart")
         quarter_summary = (
-            df.groupby(["quarter", "team", "event"]).size().reset_index(name="aantal")
+            df.groupby(["quarter", "team", "event"])
+            .size()
+            .reset_index(name="aantal")
             .sort_values(["quarter", "team", "event"])
         )
         st.dataframe(quarter_summary, use_container_width=True, hide_index=True)
 
-with tab_attack:
+with tab2:
     if df.empty:
         st.info("Nog geen data voor aanvalsanalyse.")
     else:
         entries = df[df["event"] == "Cirkelentry"].copy()
+
         team_entries = count_events(df, team, "Cirkelentry")
         opp_entries = count_events(df, opp, "Cirkelentry")
         team_shots = count_events(df, team, "Schot") + count_events(df, team, "Schot op goal")
@@ -618,12 +758,14 @@ with tab_attack:
             st.info("Nog geen cirkelentries getagd.")
         else:
             flank_summary = (
-                entries.groupby(["team", "zone"]).size().reset_index(name="aantal")
+                entries.groupby(["team", "zone"])
+                .size()
+                .reset_index(name="aantal")
                 .sort_values(["team", "zone"])
             )
             st.dataframe(flank_summary, use_container_width=True, hide_index=True)
 
-with tab_press:
+with tab3:
     if df.empty:
         st.info("Nog geen data voor press- en omschakelanalyse.")
     else:
@@ -650,87 +792,77 @@ with tab_press:
         p7.metric(f"Press efficiëntie {team}", f"{team_press_eff:.0f}%")
         p8.metric(f"Press efficiëntie {opp}", f"{opp_press_eff:.0f}%")
 
-with tab_fieldmap:
-    st.subheader("🗺️ Hockey veldkaart")
+with tab4:
+    st.subheader("🗺️ Veldkaart met 3 zones")
+
     if df.empty:
         st.info("Nog geen data voor de veldkaart.")
     else:
-        field_events = df[df["zone"].isin([
-            "Linksachter", "Linksmidden", "Linksvoor", "Centrum",
-            "Middenvoor", "Rechtsvoor", "Rechtsmidden", "Rechtsachter"
-        ])].copy()
-        if field_events.empty:
-            st.info("Nog geen zone-data beschikbaar voor de veldkaart.")
-        else:
-            event_type_for_map = st.selectbox(
-                "Kies event voor veldkaart",
-                ["Cirkelentry"],
-                key="fieldmap_event_type",
-            )
-            team_for_map = st.selectbox(
-                "Kies team voor veldkaart",
-                [st.session_state.team_name, st.session_state.opponent_name],
-                key="fieldmap_team",
-            )
+        team_for_map = st.selectbox(
+            "Kies team",
+            [st.session_state.team_name, st.session_state.opponent_name],
+            key="fieldmap_team_v2",
+        )
 
-            map_df = field_events[
-                (field_events["event"] == event_type_for_map)
-                & (field_events["team"] == team_for_map)
-            ]
+        map_df = df[
+            (df["event"] == "Cirkelentry")
+            & (df["team"] == team_for_map)
+            & (df["zone"].isin(["Linksvoor", "Middenvoor", "Rechtsvoor"]))
+        ]
 
-            zone_order = [
-                "Linksachter", "Linksmidden", "Linksvoor", "Centrum",
-                "Middenvoor", "Rechtsvoor", "Rechtsmidden", "Rechtsachter"
-            ]
-            zone_counts = {zone: len(map_df[map_df["zone"] == zone]) for zone in zone_order}
-            total_count = sum(zone_counts.values())
+        counts = {
+            "Linksvoor": len(map_df[map_df["zone"] == "Linksvoor"]),
+            "Middenvoor": len(map_df[map_df["zone"] == "Middenvoor"]),
+            "Rechtsvoor": len(map_df[map_df["zone"] == "Rechtsvoor"]),
+        }
+        total = sum(counts.values())
+        pcts = {k: percent(v, total) for k, v in counts.items()}
 
-            st.markdown("### Verdeling over het veld")
-            z1, z2, z3, z4 = st.columns(4)
-            z1.metric("Linksachter", zone_counts["Linksachter"])
-            z2.metric("Linksmidden", zone_counts["Linksmidden"])
-            z3.metric("Linksvoor", zone_counts["Linksvoor"])
-            z4.metric("Centrum", zone_counts["Centrum"])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Linksvoor", counts["Linksvoor"])
+        c2.metric("Middenvoor", counts["Middenvoor"])
+        c3.metric("Rechtsvoor", counts["Rechtsvoor"])
 
-            z5, z6, z7, z8 = st.columns(4)
-            z5.metric("Middenvoor", zone_counts["Middenvoor"])
-            z6.metric("Rechtsvoor", zone_counts["Rechtsvoor"])
-            z7.metric("Rechtsmidden", zone_counts["Rechtsmidden"])
-            z8.metric("Rechtsachter", zone_counts["Rechtsachter"])
-
-            pct = {zone: percent(count, total_count) for zone, count in zone_counts.items()}
-
-            st.markdown(
-                f"""
-<div style="border:2px solid #2c7a7b; border-radius:16px; padding:18px; background:#f7fafc;">
-  <div style="text-align:center; font-weight:700; margin-bottom:10px; color:black;">Veldkaart {team_for_map}</div>
-  <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:10px; text-align:center; color:black;">
-    <div style="background:#ebf8ff; border-radius:12px; padding:18px 8px;"><div style="font-weight:700;">Linksachter</div><div style="font-size:26px; font-weight:800;">{zone_counts['Linksachter']}</div><div>{pct['Linksachter']:.0f}%</div></div>
-    <div style="background:#bee3f8; border-radius:12px; padding:18px 8px;"><div style="font-weight:700;">Linksmidden</div><div style="font-size:26px; font-weight:800;">{zone_counts['Linksmidden']}</div><div>{pct['Linksmidden']:.0f}%</div></div>
-    <div style="background:#90cdf4; border-radius:12px; padding:18px 8px;"><div style="font-weight:700;">Linksvoor</div><div style="font-size:26px; font-weight:800;">{zone_counts['Linksvoor']}</div><div>{pct['Linksvoor']:.0f}%</div></div>
-    <div style="background:#63b3ed; border-radius:12px; padding:18px 8px;"><div style="font-weight:700;">Centrum</div><div style="font-size:26px; font-weight:800;">{zone_counts['Centrum']}</div><div>{pct['Centrum']:.0f}%</div></div>
-    <div style="background:#4299e1; border-radius:12px; padding:18px 8px;"><div style="font-weight:700;">Middenvoor</div><div style="font-size:26px; font-weight:800;">{zone_counts['Middenvoor']}</div><div>{pct['Middenvoor']:.0f}%</div></div>
-    <div style="background:#63b3ed; border-radius:12px; padding:18px 8px;"><div style="font-weight:700;">Rechtsvoor</div><div style="font-size:26px; font-weight:800;">{zone_counts['Rechtsvoor']}</div><div>{pct['Rechtsvoor']:.0f}%</div></div>
-    <div style="background:#90cdf4; border-radius:12px; padding:18px 8px;"><div style="font-weight:700;">Rechtsmidden</div><div style="font-size:26px; font-weight:800;">{zone_counts['Rechtsmidden']}</div><div>{pct['Rechtsmidden']:.0f}%</div></div>
-    <div style="background:#bee3f8; border-radius:12px; padding:18px 8px;"><div style="font-weight:700;">Rechtsachter</div><div style="font-size:26px; font-weight:800;">{zone_counts['Rechtsachter']}</div><div>{pct['Rechtsachter']:.0f}%</div></div>
+        st.markdown(
+            f"""
+<div style="border:2px solid #2c7a7b; border-radius:18px; padding:18px; background:#f7fafc;">
+  <div style="text-align:center; font-weight:700; margin-bottom:14px; color:black;">
+    Cirkelentries {team_for_map}
+  </div>
+  <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; text-align:center; color:black;">
+    <div style="background:#bee3f8; border-radius:14px; padding:24px 10px;">
+      <div style="font-weight:700;">Linksvoor</div>
+      <div style="font-size:34px; font-weight:800;">{counts['Linksvoor']}</div>
+      <div>{pcts['Linksvoor']:.0f}%</div>
+    </div>
+    <div style="background:#63b3ed; border-radius:14px; padding:24px 10px;">
+      <div style="font-weight:700;">Middenvoor</div>
+      <div style="font-size:34px; font-weight:800;">{counts['Middenvoor']}</div>
+      <div>{pcts['Middenvoor']:.0f}%</div>
+    </div>
+    <div style="background:#90cdf4; border-radius:14px; padding:24px 10px;">
+      <div style="font-weight:700;">Rechtsvoor</div>
+      <div style="font-size:34px; font-weight:800;">{counts['Rechtsvoor']}</div>
+      <div>{pcts['Rechtsvoor']:.0f}%</div>
+    </div>
   </div>
 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            """,
+            unsafe_allow_html=True,
+        )
 
-            if total_count > 0:
-                dominant_zone = max(zone_counts.items(), key=lambda x: x[1])[0].lower()
-                st.info(f"De meeste {event_type_for_map.lower()}s van {team_for_map} kwamen uit {dominant_zone}.")
-            else:
-                st.info("Nog geen events voor deze selectie.")
+        if total > 0:
+            dominant_zone = max(counts.items(), key=lambda x: x[1])[0].lower()
+            st.info(f"De meeste cirkelentries van {team_for_map} kwamen via {dominant_zone}.")
+        else:
+            st.info("Nog geen cirkelentries beschikbaar voor deze selectie.")
 
-with tab_report:
+with tab5:
     if df.empty:
         st.info("Nog geen data voor een wedstrijdrapport.")
     else:
         report_text = generate_report(df)
-        st.text_area("Automatisch wedstrijdrapport", value=report_text, height=320)
+        st.text_area("Automatisch wedstrijdrapport", value=report_text, height=340)
         st.download_button(
             "Download wedstrijdrapport TXT",
             data=report_text.encode("utf-8"),
@@ -739,12 +871,12 @@ with tab_report:
             use_container_width=True,
         )
 
-with tab_eventlog:
+with tab6:
     st.subheader("Eventlog")
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
+    e1, e2, e3 = st.columns(3)
+    with e1:
         st.download_button(
             "Download CSV",
             data=df.to_csv(index=False).encode("utf-8"),
@@ -752,7 +884,7 @@ with tab_eventlog:
             mime="text/csv",
             use_container_width=True,
         )
-    with c2:
+    with e2:
         st.download_button(
             "Download Excel",
             data=export_excel(df),
@@ -760,21 +892,7 @@ with tab_eventlog:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
-    with c3:
+    with e3:
         if st.button("Laatste event verwijderen", use_container_width=True):
-            if st.session_state.events:
-                if cloud_enabled():
-                    delete_last_event_cloud()
-                    sync_from_cloud()
-                else:
-                    st.session_state.events.pop()
-                    recalc_score()
-                st.rerun()
-
-    if st.button("Reset alles", use_container_width=True):
-        if cloud_enabled():
-            reset_match_cloud()
-        st.session_state.events = []
-        st.session_state.score_team = 0
-        st.session_state.score_opponent = 0
-        st.rerun()
+            remove_last_event()
+            st.rerun()
