@@ -1010,22 +1010,39 @@ with tab4:
         c2.metric("Middenvoor", counts["Middenvoor"])
         c3.metric("Rechtsvoor", counts["Rechtsvoor"])
 
-        st.markdown(
-            f"""
-<div style="border:2px solid #2c7a7b; border-radius:18px; padding:18px; background:#f7fafc;">
-  <div style="text-align:center; font-weight:700; margin-bottom:14px; color:black; font-size:22px;">
-    Heatmap {map_event} • {map_team} • {map_quarter}
-  </div>
-  <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px;">
-    {render_heatmap_card("Linksvoor", counts["Linksvoor"], pcts["Linksvoor"], alpha(counts["Linksvoor"]))}
-    {render_heatmap_card("Middenvoor", counts["Middenvoor"], pcts["Middenvoor"], alpha(counts["Middenvoor"]))}
-    {render_heatmap_card("Rechtsvoor", counts["Rechtsvoor"], pcts["Rechtsvoor"], alpha(counts["Rechtsvoor"]))}
-  </div>
-</div>
-            """,
-            unsafe_allow_html=True,
-        )
+     st.markdown(
+    f"""
+    <div style="border:2px solid #2c7a7b; border-radius:18px; padding:18px; background:#f7fafc; margin-bottom:14px;">
+      <div style="text-align:center; font-weight:700; color:black; font-size:22px;">
+        Heatmap {map_event} • {map_team} • {map_quarter}
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
+h1, h2, h3 = st.columns(3)
+with h1:
+    render_heatmap_card(
+        "Linksvoor",
+        counts["Linksvoor"],
+        pcts["Linksvoor"],
+        alpha(counts["Linksvoor"]),
+    )
+with h2:
+    render_heatmap_card(
+        "Middenvoor",
+        counts["Middenvoor"],
+        pcts["Middenvoor"],
+        alpha(counts["Middenvoor"]),
+    )
+with h3:
+    render_heatmap_card(
+        "Rechtsvoor",
+        counts["Rechtsvoor"],
+        pcts["Rechtsvoor"],
+        alpha(counts["Rechtsvoor"]),
+    )
         if total > 0:
             dominant_zone = max(counts.items(), key=lambda x: x[1])[0].lower()
             st.info(f"De meeste {map_event.lower()}s van {map_team} kwamen via {dominant_zone}.")
