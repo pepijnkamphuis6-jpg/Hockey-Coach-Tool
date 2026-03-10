@@ -10,7 +10,7 @@ except Exception:
     create_client = None
 
 
-st.set_page_config(page_title="Hockey Coach Analyse Tool V5.2", layout="wide")
+st.set_page_config(page_title="Hockey Coach Analyse Tool V5.3", layout="wide")
 
 # --------------------------------------------------
 # Defaults
@@ -30,11 +30,33 @@ DEFAULTS = {
     "last_sync_count": 0,
     "auto_notes": "",
     "ui_mode": "Normale modus",
+    "selected_event_id": None,
 }
 
 for key, value in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value
+
+
+# --------------------------------------------------
+# Constants
+# --------------------------------------------------
+QUARTERS = ["Q1", "Q2", "Q3", "Q4"]
+ZONES = ["", "Linksvoor", "Middenvoor", "Rechtsvoor"]
+EVENT_OPTIONS = [
+    "Cirkelentry",
+    "Schot",
+    "Schot op goal",
+    "Goal",
+    "Strafcorner",
+    "Hoge balverovering",
+    "Press succes",
+    "Opbouw mislukt",
+    "Turnover",
+    "Turnover eigen helft",
+    "Counter tegen na balverlies",
+    "Cirkelverdediging fout",
+]
 
 
 # --------------------------------------------------
@@ -100,7 +122,6 @@ def build_df() -> pd.DataFrame:
 def count_events(df: pd.DataFrame, team: str, event: str, quarter: str | None = None) -> int:
     if df.empty:
         return 0
-
     mask = (df["team"] == team) & (df["event"] == event)
     if quarter is not None:
         mask = mask & (df["quarter"] == quarter)
@@ -109,6 +130,12 @@ def count_events(df: pd.DataFrame, team: str, event: str, quarter: str | None = 
 
 def percent(numerator: int, denominator: int) -> float:
     return (numerator / denominator * 100) if denominator > 0 else 0.0
+
+
+def safe_ratio_text(numerator: int, denominator: int) -> str:
+    if denominator <= 0:
+        return "0%"
+    return f"{percent(numerator, denominator):.0f}%"
 
 
 def set_new_match_id() -> None:
@@ -122,11 +149,10 @@ def recalc_score() -> None:
 
 
 def next_quarter() -> None:
-    order = ["Q1", "Q2", "Q3", "Q4"]
     try:
-        idx = order.index(st.session_state.quarter)
-        if idx < len(order) - 1:
-            st.session_state.quarter = order[idx + 1]
+        idx = QUARTERS.index(st.session_state.quarter)
+        if idx < len(QUARTERS) - 1:
+            st.session_state.quarter = QUARTERS[idx + 1]
     except ValueError:
         st.session_state.quarter = "Q1"
 
@@ -150,12 +176,19 @@ def dominant_zone_text(
     return zone_counts.idxmax().lower()
 
 
+def refresh_derived_state() -> None:
+    recalc_score()
+    df = build_df()
+    st.session_state.auto_notes = generate_auto_notes(df)
+    st.session_state.last_sync_count = len(df)
+
+
 def build_quarter_report_df(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     team = st.session_state.team_name
     opp = st.session_state.opponent_name
 
-    for q in ["Q1", "Q2", "Q3", "Q4"]:
+    for q in QUARTERS:
         qdf = df[df["quarter"] == q]
         if qdf.empty:
             continue
@@ -186,6 +219,56 @@ def build_quarter_report_df(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def build_kpi_summary(df: pd.DataFrame) -> dict:
+    team = st.session_state.team_name
+    opp = st.session_state.opponent_name
+
+    team_entries = count_events(df, team, "Cirkelentry")
+    opp_entries = count_events(df, opp, "Cirkelentry")
+
+    team_shots = count_events(df, team, "Schot") + count_events(df, team, "Schot op goal")
+    opp_shots = count_events(df, opp, "Schot") + count_events(df, opp, "Schot op goal")
+
+    team_goals = count_events(df, team, "Goal")
+    opp_goals = count_events(df, opp, "Goal")
+
+    team_high_wins = count_events(df, team, "Hoge balverovering")
+    opp_high_wins = count_events(df, opp, "Hoge balverovering")
+
+    team_turnovers_own = count_events(df, team, "Turnover eigen helft")
+    opp_turnovers_own = count_events(df, opp, "Turnover eigen helft")
+
+    team_counters_against = count_events(df, team, "Counter tegen na balverlies")
+    opp_counters_against = count_events(df, opp, "Counter tegen na balverlies")
+
+    return {
+        "team_entries": team_entries,
+        "opp_entries": opp_entries,
+        "team_shots": team_shots,
+        "opp_shots": opp_shots,
+        "team_goals": team_goals,
+        "opp_goals": opp_goals,
+        "team_high_wins": team_high_wins,
+        "opp_high_wins": opp_high_wins,
+        "team_turnovers_own": team_turnovers_own,
+        "opp_turnovers_own": opp_turnovers_own,
+        "team_counters_against": team_counters_against,
+        "opp_counters_against": opp_counters_against,
+        "team_entry_to_shot_pct": percent(team_shots, team_entries),
+        "opp_entry_to_shot_pct": percent(opp_shots, opp_entries),
+        "team_shot_to_goal_pct": percent(team_goals, team_shots),
+        "opp_shot_to_goal_pct": percent(opp_goals, opp_shots),
+        "team_highwin_to_entry_pct": percent(team_entries, team_high_wins),
+        "opp_highwin_to_entry_pct": percent(opp_entries, opp_high_wins),
+        "team_turnover_to_counter_pct": percent(team_counters_against, team_turnovers_own),
+        "opp_turnover_to_counter_pct": percent(opp_counters_against, opp_turnovers_own),
+        "opp_entries_to_shot_pct": percent(opp_shots, opp_entries),
+        "opp_shots_to_goal_pct": percent(opp_goals, opp_shots),
+        "team_entries_to_shot_against_pct": percent(opp_shots, opp_entries),
+        "team_shots_to_goal_against_pct": percent(opp_goals, opp_shots),
+    }
+
+
 def export_excel(df: pd.DataFrame) -> bytes:
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -211,6 +294,9 @@ def export_excel(df: pd.DataFrame) -> bytes:
 
             quarter_df = build_quarter_report_df(df)
             quarter_df.to_excel(writer, sheet_name="Kwartanalyse", index=False)
+
+            kpis = pd.DataFrame([build_kpi_summary(df)])
+            kpis.to_excel(writer, sheet_name="KPI", index=False)
 
     buffer.seek(0)
     return buffer.getvalue()
@@ -256,6 +342,21 @@ def save_event_to_cloud(event_row: dict) -> None:
     client.table("match_events").insert(event_row).execute()
 
 
+def update_event_in_cloud(event_row: dict) -> None:
+    client = get_supabase_client()
+    if client is None:
+        return
+    event_id = event_row["id"]
+    client.table("match_events").update(event_row).eq("id", event_id).execute()
+
+
+def delete_event_cloud(event_id: str) -> None:
+    client = get_supabase_client()
+    if client is None:
+        return
+    client.table("match_events").delete().eq("id", event_id).execute()
+
+
 def delete_last_event_cloud() -> None:
     client = get_supabase_client()
     if client is None or not st.session_state.events:
@@ -276,8 +377,7 @@ def sync_from_cloud() -> None:
         return
     fresh = load_events_from_cloud(st.session_state.match_id)
     st.session_state.events = fresh
-    recalc_score()
-    st.session_state.last_sync_count = len(fresh)
+    refresh_derived_state()
     st.session_state.last_sync_time = time.strftime("%H:%M:%S")
 
 
@@ -309,10 +409,10 @@ def add_event(
     )
 
     st.session_state.events.append(event_row)
-    recalc_score()
-
     if cloud_enabled():
         save_event_to_cloud(event_row)
+
+    refresh_derived_state()
 
 
 def quick_add(team: str, event: str, zone: str = "") -> None:
@@ -329,7 +429,37 @@ def remove_last_event() -> None:
         sync_from_cloud()
     else:
         st.session_state.events.pop()
-        recalc_score()
+        refresh_derived_state()
+
+
+def remove_event_by_id(event_id: str) -> None:
+    if cloud_enabled():
+        delete_event_cloud(event_id)
+        sync_from_cloud()
+    else:
+        st.session_state.events = [e for e in st.session_state.events if e["id"] != event_id]
+        refresh_derived_state()
+
+
+def update_event_local(event_id: str, updated_row: dict) -> None:
+    new_events = []
+    for row in st.session_state.events:
+        if row["id"] == event_id:
+            merged = row.copy()
+            merged.update(updated_row)
+            new_events.append(normalize_event_row(merged))
+        else:
+            new_events.append(row)
+    st.session_state.events = new_events
+    refresh_derived_state()
+
+
+def update_event(event_id: str, updated_row: dict) -> None:
+    update_event_local(event_id, updated_row)
+    if cloud_enabled():
+        event_row = next((e for e in st.session_state.events if e["id"] == event_id), None)
+        if event_row:
+            update_event_in_cloud(event_row)
 
 
 def reset_all() -> None:
@@ -340,6 +470,7 @@ def reset_all() -> None:
     st.session_state.score_team = 0
     st.session_state.score_opponent = 0
     st.session_state.auto_notes = ""
+    st.session_state.selected_event_id = None
 
 
 # --------------------------------------------------
@@ -394,63 +525,104 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
 
     team = st.session_state.team_name
     opp = st.session_state.opponent_name
+    kpi = build_kpi_summary(df)
+    patterns = generate_tactical_patterns(df)
 
-    team_entries = count_events(df, team, "Cirkelentry")
-    opp_entries = count_events(df, opp, "Cirkelentry")
-    team_shots = count_events(df, team, "Schot") + count_events(df, team, "Schot op goal")
-    opp_shots = count_events(df, opp, "Schot") + count_events(df, opp, "Schot op goal")
-    team_goals = count_events(df, team, "Goal")
-    opp_goals = count_events(df, opp, "Goal")
-    team_high_wins = count_events(df, team, "Hoge balverovering")
-    opp_high_wins = count_events(df, opp, "Hoge balverovering")
-    team_turnovers_own = count_events(df, team, "Turnover eigen helft")
-    team_counters_against = count_events(df, team, "Counter tegen na balverlies")
+    aanval = []
+    if kpi["team_entries"] == 0:
+        aanval.append(f"{team} kwam nog niet in de cirkel.")
+    else:
+        aanval.append(
+            f"{team} had {kpi['team_entries']} cirkelentries, {kpi['team_shots']} schoten en {kpi['team_goals']} goals."
+        )
+        aanval.append(
+            f"Entry naar shot: {kpi['team_entry_to_shot_pct']:.0f}% • shot naar goal: {kpi['team_shot_to_goal_pct']:.0f}%."
+        )
+        if kpi["team_entry_to_shot_pct"] < 40:
+            aanval.append("De ploeg komt wel in de cirkel, maar maakt daar te weinig schoten van.")
+        if kpi["team_shot_to_goal_pct"] < 20 and kpi["team_shots"] > 0:
+            aanval.append("De afronding is nog niet efficiënt genoeg.")
+        aanval.append(
+            f"Dominante entryzone: {dominant_zone_text(df, team, event='Cirkelentry')}."
+        )
 
-    team_shot_rate = percent(team_shots, team_entries)
-    opp_shot_rate = percent(opp_shots, opp_entries)
-    team_conversion = percent(team_goals, team_shots)
-    opp_conversion = percent(opp_goals, opp_shots)
+    press = []
+    press.append(
+        f"Hoge balveroveringen {team}: {kpi['team_high_wins']} • press successen: {count_events(df, team, 'Press succes')}."
+    )
+    if kpi["team_high_wins"] >= 4:
+        press.append("De press levert regelmatig balwinst op.")
+    if kpi["team_highwin_to_entry_pct"] > 60 and kpi["team_high_wins"] > 0:
+        press.append("Na hoge balverovering weet het team vaak door te gaan naar een cirkelentry.")
+    elif kpi["team_high_wins"] > 0:
+        press.append("Na hoge balverovering kan de vervolgactie richting cirkel nog beter.")
 
-    coach_points = []
-    if team_entries > 0 and team_shot_rate < 40:
-        coach_points.append(f"{team} komt in de cirkel, maar zet te weinig entries om in schoten.")
-    if team_shots > 0 and team_conversion < 20:
-        coach_points.append(f"{team} creëert schoten, maar de afronding is onvoldoende effectief.")
-    if team_turnovers_own >= 3:
-        coach_points.append(f"{team} lijdt te vaak balverlies in eigen helft.")
-    if team_counters_against >= 3:
-        coach_points.append(f"{team} krijgt meerdere counters tegen na balverlies.")
-    if team_high_wins >= 4:
-        coach_points.append(f"De press van {team} is een duidelijke kracht in deze wedstrijd.")
-    if not coach_points:
-        coach_points.append(f"{team} laat een gebalanceerd profiel zien zonder één dominante zwakte.")
+    omschakeling = []
+    omschakeling.append(
+        f"Turnovers eigen helft {team}: {kpi['team_turnovers_own']} • counters tegen: {kpi['team_counters_against']}."
+    )
+    if kpi["team_turnovers_own"] >= 3:
+        omschakeling.append("Balverlies in eigen helft is een terugkerend risico.")
+    if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
+        omschakeling.append("Te veel turnovers in eigen helft leiden direct tot counters tegen.")
+    elif kpi["team_counters_against"] >= 3:
+        omschakeling.append("De restverdediging na balverlies moet compacter en sneller staan.")
 
-    tactical_patterns = generate_tactical_patterns(df)
+    verdediging = []
+    verdediging.append(
+        f"{opp} had {kpi['opp_entries']} cirkelentries, {kpi['opp_shots']} schoten en {kpi['opp_goals']} goals."
+    )
+    verdediging.append(
+        f"Entries tegen naar schot: {kpi['opp_entry_to_shot_pct']:.0f}% • schoten tegen naar goal: {kpi['opp_shot_to_goal_pct']:.0f}%."
+    )
+    if kpi["opp_entry_to_shot_pct"] > 50:
+        verdediging.append("De tegenstander mag te vaak van entry naar schot komen.")
+    if kpi["opp_shot_to_goal_pct"] > 30 and kpi["opp_shots"] > 0:
+        verdediging.append("De kwaliteit van de schoten tegen is waarschijnlijk te hoog.")
+
+    coachactie = []
+    if kpi["team_entry_to_shot_pct"] < 40:
+        coachactie.append("Focus: in de cirkel sneller tot een eerste doelpoging komen.")
+    if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
+        coachactie.append("Focus: minder risico in de opbouw en betere restverdediging.")
+    if kpi["team_high_wins"] >= 4:
+        coachactie.append("Focus: press blijven gebruiken als wapen, maar directer doorpakken na balwinst.")
+    if kpi["opp_entry_to_shot_pct"] > 50:
+        coachactie.append("Focus: eerder druk op de bal bij entries van de tegenstander.")
+    if not coachactie:
+        coachactie.append("Focus: huidige balans vasthouden en details per kwart blijven monitoren.")
 
     lines = [
         f"Wedstrijd: {team} - {opp}",
-        f"Score: {team_goals}-{opp_goals}",
+        f"Score: {kpi['team_goals']}-{kpi['opp_goals']}",
         "",
-        f"{team}: {team_entries} cirkelentries, {team_shots} schoten, {team_goals} goals.",
-        f"{opp}: {opp_entries} cirkelentries, {opp_shots} schoten, {opp_goals} goals.",
-        f"Shot rate {team}: {team_shot_rate:.0f}%",
-        f"Shot rate {opp}: {opp_shot_rate:.0f}%",
-        f"Conversion {team}: {team_conversion:.0f}%",
-        f"Conversion {opp}: {opp_conversion:.0f}%",
-        f"Hoge balveroveringen {team}: {team_high_wins}",
-        f"Hoge balveroveringen {opp}: {opp_high_wins}",
+        "AANVAL",
+        *[f"- {x}" for x in aanval],
         "",
-        "Tactische patronen:",
+        "PRESS",
+        *[f"- {x}" for x in press],
+        "",
+        "OMSCHAKELING",
+        *[f"- {x}" for x in omschakeling],
+        "",
+        "VERDEDIGING",
+        *[f"- {x}" for x in verdediging],
+        "",
+        "TACTISCHE PATRONEN",
     ]
 
-    if tactical_patterns:
-        lines.extend([f"- {p}" for p in tactical_patterns[:5]])
+    if patterns:
+        lines.extend([f"- {p}" for p in patterns[:5]])
     else:
-        lines.append("- Nog geen duidelijke tactische patronen zichtbaar.")
+        lines.append("- Nog geen duidelijke patronen zichtbaar.")
 
-    lines.append("")
-    lines.append("Coachpunten totaal:")
-    lines.extend([f"- {p}" for p in coach_points[:4]])
+    lines.extend(
+        [
+            "",
+            "COACHACTIE VOLGEND KWART",
+            *[f"- {x}" for x in coachactie[:4]],
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -612,8 +784,7 @@ def auto_sync_cloud():
         fresh = load_events_from_cloud(st.session_state.match_id)
         if len(fresh) != st.session_state.last_sync_count:
             st.session_state.events = fresh
-            recalc_score()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
+            refresh_derived_state()
         st.session_state.last_sync_count = len(fresh)
         st.session_state.last_sync_time = time.strftime("%H:%M:%S")
 
@@ -656,8 +827,8 @@ def live_clock():
 # --------------------------------------------------
 inject_custom_css()
 
-st.title("🏑 Hockey Coach Analyse Tool V5.2")
-st.write("Met aparte live-coachwedstrijdmodus voor iPad en volledige analysemodus.")
+st.title("🏑 Hockey Coach Analyse Tool V5.3")
+st.write("Met live tagging, bewerkbaar eventlog, extra KPI's en automatisch coachrapport.")
 
 top1, top2, top3, top4 = st.columns([1.2, 1.2, 0.8, 1.0])
 with top1:
@@ -665,7 +836,7 @@ with top1:
 with top2:
     st.text_input("Naam tegenstander", key="opponent_name")
 with top3:
-    st.selectbox("Kwart", ["Q1", "Q2", "Q3", "Q4"], key="quarter")
+    st.selectbox("Kwart", QUARTERS, key="quarter")
 with top4:
     st.selectbox("Weergave", ["Normale modus", "Wedstrijdmodus iPad"], key="ui_mode")
 
@@ -675,7 +846,6 @@ with sync1:
 with sync2:
     if st.button("Laad wedstrijd", use_container_width=True):
         sync_from_cloud()
-        st.session_state.auto_notes = generate_auto_notes(build_df())
         st.rerun()
 with sync3:
     st.button("Nieuwe ID", on_click=set_new_match_id, use_container_width=True)
@@ -695,6 +865,8 @@ auto_sync_cloud()
 team = st.session_state.team_name
 opp = st.session_state.opponent_name
 df = build_df()
+if not st.session_state.auto_notes and not df.empty:
+    refresh_derived_state()
 
 # --------------------------------------------------
 # Live coach mode
@@ -718,16 +890,14 @@ if st.session_state.ui_mode == "Wedstrijdmodus iPad":
     with a1:
         if st.button("↩️ Undo", use_container_width=True):
             remove_last_event()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
             st.rerun()
     with a2:
         if st.button("🔄 Sync", use_container_width=True):
             sync_from_cloud()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
             st.rerun()
     with a3:
         if st.button("📝 Analyse", use_container_width=True):
-            st.session_state.auto_notes = generate_auto_notes(build_df())
+            refresh_derived_state()
             st.rerun()
     with a4:
         if st.button("🗑️ Reset", use_container_width=True):
@@ -736,18 +906,14 @@ if st.session_state.ui_mode == "Wedstrijdmodus iPad":
 
     st.divider()
     left, right = st.columns(2)
-
     with left:
         render_team_tagging(team, "team", "#2563eb")
-
     with right:
         render_team_tagging(opp, "opp", "#dc2626")
 
     st.divider()
     st.subheader("📝 Laatste analyse")
-    if not st.session_state.auto_notes:
-        st.session_state.auto_notes = generate_auto_notes(df)
-    st.text_area("Coachrapport", value=st.session_state.auto_notes, height=220)
+    st.text_area("Coachrapport", value=st.session_state.auto_notes or "Nog geen data.", height=260)
 
 # --------------------------------------------------
 # Normal analysis mode
@@ -771,16 +937,14 @@ else:
     with a1:
         if st.button("↩️ Undo laatste event", use_container_width=True):
             remove_last_event()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
             st.rerun()
     with a2:
         if st.button("🔄 Handmatige sync", use_container_width=True):
             sync_from_cloud()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
             st.rerun()
     with a3:
-        if st.button("📝 Update auto-analyse", use_container_width=True):
-            st.session_state.auto_notes = generate_auto_notes(build_df())
+        if st.button("📝 Ververs analyse", use_container_width=True):
+            refresh_derived_state()
             st.rerun()
     with a4:
         if st.button("🗑️ Reset wedstrijd", use_container_width=True):
@@ -806,34 +970,29 @@ else:
         if df.empty:
             st.info("Nog geen events toegevoegd.")
         else:
-            team_entries = count_events(df, team, "Cirkelentry")
-            opp_entries = count_events(df, opp, "Cirkelentry")
-            team_shots = count_events(df, team, "Schot") + count_events(df, team, "Schot op goal")
-            opp_shots = count_events(df, opp, "Schot") + count_events(df, opp, "Schot op goal")
-            team_goals = count_events(df, team, "Goal")
-            opp_goals = count_events(df, opp, "Goal")
-            team_high_wins = count_events(df, team, "Hoge balverovering")
-            opp_high_wins = count_events(df, opp, "Hoge balverovering")
-            team_counters_against = count_events(df, team, "Counter tegen na balverlies")
-            team_turnovers_own = count_events(df, team, "Turnover eigen helft")
+            kpi = build_kpi_summary(df)
 
             d1, d2, d3, d4 = st.columns(4)
-            d1.metric(f"Cirkelentries {team}", team_entries)
-            d2.metric(f"Schoten {team}", team_shots)
-            d3.metric(f"Goals {team}", team_goals)
-            d4.metric(f"Shot rate {team}", f"{percent(team_shots, team_entries):.0f}%")
+            d1.metric(f"Cirkelentries {team}", kpi["team_entries"])
+            d2.metric(f"Schoten {team}", kpi["team_shots"])
+            d3.metric(f"Goals {team}", kpi["team_goals"])
+            d4.metric(f"Entry → shot {team}", f"{kpi['team_entry_to_shot_pct']:.0f}%")
 
             d5, d6, d7, d8 = st.columns(4)
-            d5.metric(f"Cirkelentries {opp}", opp_entries)
-            d6.metric(f"Schoten {opp}", opp_shots)
-            d7.metric(f"Goals {opp}", opp_goals)
-            d8.metric(f"Shot rate {opp}", f"{percent(opp_shots, opp_entries):.0f}%")
+            d5.metric(f"Shot → goal {team}", f"{kpi['team_shot_to_goal_pct']:.0f}%")
+            d6.metric(f"Hoge balveroveringen {team}", kpi["team_high_wins"])
+            d7.metric(f"Hoge balwinst → entry {team}", f"{kpi['team_highwin_to_entry_pct']:.0f}%")
+            d8.metric(f"Turnover eigen helft → counter tegen", f"{kpi['team_turnover_to_counter_pct']:.0f}%")
 
             d9, d10, d11, d12 = st.columns(4)
-            d9.metric(f"Hoge balveroveringen {team}", team_high_wins)
-            d10.metric(f"Hoge balveroveringen {opp}", opp_high_wins)
-            d11.metric(f"Turnovers eigen helft {team}", team_turnovers_own)
-            d12.metric(f"Counters tegen {team}", team_counters_against)
+            d9.metric(f"Cirkelentries {opp}", kpi["opp_entries"])
+            d10.metric(f"Schoten {opp}", kpi["opp_shots"])
+            d11.metric(f"Goals {opp}", kpi["opp_goals"])
+            d12.metric(f"Entries tegen → schot", f"{kpi['opp_entry_to_shot_pct']:.0f}%")
+
+            d13, d14 = st.columns(2)
+            d13.metric(f"Schoten tegen → goal", f"{kpi['opp_shot_to_goal_pct']:.0f}%")
+            d14.metric(f"Counters tegen {team}", kpi["team_counters_against"])
 
             st.subheader("Overzicht per kwart")
             quarter_df = build_quarter_report_df(df)
@@ -847,17 +1006,12 @@ else:
             st.info("Nog geen aanvalsdataset.")
         else:
             entries = df[df["event"] == "Cirkelentry"].copy()
+            kpi = build_kpi_summary(df)
 
             m1, m2, m3 = st.columns(3)
-            m1.metric(f"Cirkelentries {team}", count_events(df, team, "Cirkelentry"))
-            m2.metric(
-                f"Shot rate {team}",
-                f"{percent(count_events(df, team, 'Schot') + count_events(df, team, 'Schot op goal'), count_events(df, team, 'Cirkelentry')):.0f}%"
-            )
-            m3.metric(
-                f"Conversie {team}",
-                f"{percent(count_events(df, team, 'Goal'), count_events(df, team, 'Schot') + count_events(df, team, 'Schot op goal')):.0f}%"
-            )
+            m1.metric(f"Cirkelentries {team}", kpi["team_entries"])
+            m2.metric(f"Entry → shot {team}", f"{kpi['team_entry_to_shot_pct']:.0f}%")
+            m3.metric(f"Shot → goal {team}", f"{kpi['team_shot_to_goal_pct']:.0f}%")
 
             st.subheader("Cirkelentries per flank")
             if entries.empty:
@@ -875,28 +1029,19 @@ else:
         if df.empty:
             st.info("Nog geen pressdata.")
         else:
-            team_high_wins = count_events(df, team, "Hoge balverovering")
-            opp_high_wins = count_events(df, opp, "Hoge balverovering")
-            team_own_turnovers = count_events(df, team, "Turnover eigen helft")
-            opp_own_turnovers = count_events(df, opp, "Turnover eigen helft")
-            team_counters_against = count_events(df, team, "Counter tegen na balverlies")
-            opp_counters_against = count_events(df, opp, "Counter tegen na balverlies")
-            team_press_eff = percent(team_high_wins, opp_own_turnovers)
-            opp_press_eff = percent(opp_high_wins, team_own_turnovers)
+            kpi = build_kpi_summary(df)
 
-            p1, p2, p3 = st.columns(3)
-            p1.metric(f"Hoge balveroveringen {team}", team_high_wins)
-            p2.metric(f"Turnovers eigen helft {team}", team_own_turnovers)
-            p3.metric(f"Counters tegen {team}", team_counters_against)
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric(f"Hoge balveroveringen {team}", kpi["team_high_wins"])
+            p2.metric(f"Turnovers eigen helft {team}", kpi["team_turnovers_own"])
+            p3.metric(f"Counters tegen {team}", kpi["team_counters_against"])
+            p4.metric(f"Hoge balwinst → entry {team}", f"{kpi['team_highwin_to_entry_pct']:.0f}%")
 
-            p4, p5, p6 = st.columns(3)
-            p4.metric(f"Hoge balveroveringen {opp}", opp_high_wins)
-            p5.metric(f"Turnovers eigen helft {opp}", opp_own_turnovers)
-            p6.metric(f"Counters tegen {opp}", opp_counters_against)
-
-            p7, p8 = st.columns(2)
-            p7.metric(f"Press efficiëntie {team}", f"{team_press_eff:.0f}%")
-            p8.metric(f"Press efficiëntie {opp}", f"{opp_press_eff:.0f}%")
+            p5, p6, p7, p8 = st.columns(4)
+            p5.metric(f"Hoge balveroveringen {opp}", kpi["opp_high_wins"])
+            p6.metric(f"Turnovers eigen helft {opp}", kpi["opp_turnovers_own"])
+            p7.metric(f"Counters tegen {opp}", kpi["opp_counters_against"])
+            p8.metric(f"Turnover → counter tegen {team}", f"{kpi['team_turnover_to_counter_pct']:.0f}%")
 
     with tab4:
         st.subheader("🗺️ Heatmap / veldvisualisatie")
@@ -905,11 +1050,7 @@ else:
             st.info("Nog geen data voor heatmap.")
         else:
             map_team = st.selectbox("Kies team", [team, opp], key="heatmap_team")
-            map_quarter = st.selectbox(
-                "Kies kwart",
-                ["Alles", "Q1", "Q2", "Q3", "Q4"],
-                key="heatmap_quarter",
-            )
+            map_quarter = st.selectbox("Kies kwart", ["Alles"] + QUARTERS, key="heatmap_quarter")
             map_event = st.selectbox(
                 "Kies eventtype",
                 ["Cirkelentry", "Schot", "Schot op goal", "Goal"],
@@ -938,17 +1079,6 @@ else:
             c1.metric("Linksvoor", counts["Linksvoor"])
             c2.metric("Middenvoor", counts["Middenvoor"])
             c3.metric("Rechtsvoor", counts["Rechtsvoor"])
-
-            st.markdown(
-                f"""
-                <div style="border:2px solid #2c7a7b; border-radius:18px; padding:18px; background:#f7fafc; margin-bottom:14px;">
-                  <div style="text-align:center; font-weight:700; color:black; font-size:22px;">
-                    Heatmap {map_event} • {map_team} • {map_quarter}
-                  </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
 
             h1, h2, h3 = st.columns(3)
             with h1:
@@ -979,45 +1109,12 @@ else:
             else:
                 st.info("Nog geen zone-data voor deze selectie.")
 
-            st.subheader("Heatmap samenvatting")
-            summary_rows = []
-            for event_name in ["Cirkelentry", "Schot", "Schot op goal", "Goal"]:
-                sub_df = df[
-                    (df["team"] == map_team)
-                    & (df["event"] == event_name)
-                    & (df["zone"].isin(["Linksvoor", "Middenvoor", "Rechtsvoor"]))
-                ].copy()
-
-                if map_quarter != "Alles":
-                    sub_df = sub_df[sub_df["quarter"] == map_quarter]
-
-                zone_counts = sub_df["zone"].value_counts()
-                if sub_df.empty:
-                    dominant = "geen data"
-                    total_event = 0
-                else:
-                    dominant = zone_counts.idxmax()
-                    total_event = len(sub_df)
-
-                summary_rows.append(
-                    {
-                        "event": event_name,
-                        "totaal": total_event,
-                        "dominante_zone": dominant,
-                    }
-                )
-
-            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
-
     with tab5:
         if df.empty:
             st.info("Nog geen data voor auto-analyse.")
         else:
-            if not st.session_state.auto_notes:
-                st.session_state.auto_notes = generate_auto_notes(df)
-
             st.subheader("Automatische tactische analyse")
-            st.text_area("Coachrapport", value=st.session_state.auto_notes, height=360)
+            st.text_area("Coachrapport", value=st.session_state.auto_notes, height=420)
 
             st.subheader("Tactische patronen")
             patterns = generate_tactical_patterns(df)
@@ -1041,7 +1138,7 @@ else:
             st.info("Nog geen events.")
         else:
             filter_team = st.selectbox("Filter team", ["Alles", team, opp], key="log_team")
-            filter_quarter = st.selectbox("Filter kwart", ["Alles", "Q1", "Q2", "Q3", "Q4"], key="log_quarter")
+            filter_quarter = st.selectbox("Filter kwart", ["Alles"] + QUARTERS, key="log_quarter")
             filter_event = st.selectbox(
                 "Filter event",
                 ["Alles"] + sorted(df["event"].dropna().unique().tolist()),
@@ -1056,7 +1153,8 @@ else:
             if filter_event != "Alles":
                 filtered_df = filtered_df[filtered_df["event"] == filter_event]
 
-            st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+            display_cols = ["quarter", "time", "team", "event", "zone", "notes", "id"]
+            st.dataframe(filtered_df[display_cols], use_container_width=True, hide_index=True)
 
             e1, e2, e3 = st.columns(3)
             with e1:
@@ -1078,5 +1176,63 @@ else:
             with e3:
                 if st.button("Laatste event verwijderen", use_container_width=True):
                     remove_last_event()
-                    st.session_state.auto_notes = generate_auto_notes(build_df())
                     st.rerun()
+
+            st.divider()
+            st.subheader("Event bewerken / verwijderen")
+
+            selectable_ids = filtered_df["id"].tolist()
+            if selectable_ids:
+                selected_id = st.selectbox("Kies event-ID", selectable_ids, key="selected_event_id")
+                selected_row = filtered_df[filtered_df["id"] == selected_id].iloc[0]
+
+                with st.form("edit_event_form"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        edit_quarter = st.selectbox(
+                            "Kwart",
+                            QUARTERS,
+                            index=QUARTERS.index(selected_row["quarter"]) if selected_row["quarter"] in QUARTERS else 0,
+                        )
+                        edit_team = st.selectbox(
+                            "Team",
+                            [team, opp],
+                            index=0 if selected_row["team"] == team else 1,
+                        )
+                        edit_event = st.selectbox(
+                            "Event",
+                            EVENT_OPTIONS,
+                            index=EVENT_OPTIONS.index(selected_row["event"]) if selected_row["event"] in EVENT_OPTIONS else 0,
+                        )
+                    with c2:
+                        edit_zone = st.selectbox(
+                            "Zone",
+                            ZONES,
+                            index=ZONES.index(selected_row["zone"]) if selected_row["zone"] in ZONES else 0,
+                        )
+                        edit_time = st.text_input("Tijd", value=str(selected_row["time"]))
+                        edit_notes = st.text_area("Notities", value=str(selected_row["notes"]))
+
+                    s1, s2 = st.columns(2)
+                    save_clicked = s1.form_submit_button("Opslaan", use_container_width=True)
+                    delete_clicked = s2.form_submit_button("Verwijderen", use_container_width=True)
+
+                    if save_clicked:
+                        update_event(
+                            selected_id,
+                            {
+                                "quarter": edit_quarter,
+                                "team": edit_team,
+                                "event": edit_event,
+                                "zone": edit_zone,
+                                "time": edit_time,
+                                "notes": edit_notes,
+                            },
+                        )
+                        st.success("Event bijgewerkt.")
+                        st.rerun()
+
+                    if delete_clicked:
+                        remove_event_by_id(selected_id)
+                        st.success("Event verwijderd.")
+                        st.rerun()
