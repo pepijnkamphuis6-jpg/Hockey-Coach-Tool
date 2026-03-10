@@ -11,7 +11,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V6 Pro",
+    page_title="Hockey Coach Analyse Tool V6 Pro Fixed",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -66,12 +66,11 @@ TEAM_BLUE = "#2563eb"
 OPP_RED = "#dc2626"
 SUCCESS_GREEN = "#16a34a"
 WARNING_ORANGE = "#ea580c"
-DARK_BG = "#0f172a"
 CARD_BG = "#ffffff"
 CARD_BORDER = "#e2e8f0"
-SUBTLE_BG = "#f8fafc"
 TEXT_MAIN = "#0f172a"
 TEXT_SUB = "#475569"
+
 
 # --------------------------------------------------
 # Helpers
@@ -286,10 +285,30 @@ def build_kpi_summary(df: pd.DataFrame) -> dict:
 def get_insight_cards(df: pd.DataFrame) -> list[dict]:
     if df.empty:
         return [
-            {"title": "Sterkte nu", "value": "Nog geen data", "accent": SUCCESS_GREEN, "subtitle": "Voeg events toe."},
-            {"title": "Grootste risico", "value": "Nog geen data", "accent": WARNING_ORANGE, "subtitle": "Nog geen analyse."},
-            {"title": "Belangrijkste patroon", "value": "Nog geen data", "accent": TEAM_BLUE, "subtitle": "Nog geen patroon zichtbaar."},
-            {"title": "Coachactie volgend kwart", "value": "Nog geen data", "accent": OPP_RED, "subtitle": "Nog geen advies."},
+            {
+                "title": "Sterkte nu",
+                "value": "Nog geen data",
+                "accent_color": SUCCESS_GREEN,
+                "subtitle": "Voeg events toe.",
+            },
+            {
+                "title": "Grootste risico",
+                "value": "Nog geen data",
+                "accent_color": WARNING_ORANGE,
+                "subtitle": "Nog geen analyse.",
+            },
+            {
+                "title": "Belangrijkste patroon",
+                "value": "Nog geen data",
+                "accent_color": TEAM_BLUE,
+                "subtitle": "Nog geen patroon zichtbaar.",
+            },
+            {
+                "title": "Coachactie volgend kwart",
+                "value": "Nog geen data",
+                "accent_color": OPP_RED,
+                "subtitle": "Nog geen advies.",
+            },
         ]
 
     team = st.session_state.team_name
@@ -340,10 +359,30 @@ def get_insight_cards(df: pd.DataFrame) -> list[dict]:
         actie_sub = "Tegenstander bij entry directer storen."
 
     return [
-        {"title": "Sterkte nu", "value": sterkte_value, "accent": SUCCESS_GREEN, "subtitle": sterkte_sub},
-        {"title": "Grootste risico", "value": risico_value, "accent": WARNING_ORANGE, "subtitle": risico_sub},
-        {"title": "Belangrijkste patroon", "value": patroon_value, "accent": TEAM_BLUE, "subtitle": patroon_sub},
-        {"title": "Coachactie volgend kwart", "value": actie_value, "accent": OPP_RED, "subtitle": actie_sub},
+        {
+            "title": "Sterkte nu",
+            "value": sterkte_value,
+            "accent_color": SUCCESS_GREEN,
+            "subtitle": sterkte_sub,
+        },
+        {
+            "title": "Grootste risico",
+            "value": risico_value,
+            "accent_color": WARNING_ORANGE,
+            "subtitle": risico_sub,
+        },
+        {
+            "title": "Belangrijkste patroon",
+            "value": patroon_value,
+            "accent_color": TEAM_BLUE,
+            "subtitle": patroon_sub,
+        },
+        {
+            "title": "Coachactie volgend kwart",
+            "value": actie_value,
+            "accent_color": OPP_RED,
+            "subtitle": actie_sub,
+        },
     ]
 
 
@@ -738,24 +777,6 @@ def inject_custom_css() -> None:
             font-weight: 600;
         }}
 
-        .pro-card {{
-            background: {CARD_BG};
-            border: 1px solid {CARD_BORDER};
-            border-radius: 22px;
-            padding: 18px 18px;
-            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-            height: 100%;
-        }}
-
-        .mini-card {{
-            background: {CARD_BG};
-            border: 1px solid {CARD_BORDER};
-            border-radius: 18px;
-            padding: 16px;
-            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
-            height: 100%;
-        }}
-
         .match-header {{
             background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
             border-radius: 28px;
@@ -1141,15 +1162,6 @@ def inject_custom_css() -> None:
             height: 14px;
             border-radius: 999px;
         }}
-
-        .report-textarea textarea {{
-            border-radius: 18px !important;
-        }}
-
-        .subtle-note {{
-            font-size: 13px;
-            color: {TEXT_SUB};
-        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -1266,10 +1278,17 @@ def render_team_header(title: str, color: str) -> None:
 def render_heatmap_card(title: str, count: int, pct: float, alpha_value: float) -> None:
     st.markdown(
         f"""
-        <div class="mini-card" style="background: rgba(37,99,235,{alpha_value});">
-            <div style="font-weight:800; font-size:18px; color:#0f172a;">{title}</div>
-            <div style="font-size:40px; font-weight:900; line-height:1.1; color:#0f172a;">{count}</div>
-            <div style="font-size:18px; color:#0f172a;">{pct:.0f}%</div>
+        <div style="
+            background: rgba(37,99,235,{alpha_value});
+            border: 1px solid {CARD_BORDER};
+            border-radius: 18px;
+            padding: 16px;
+            box-shadow: 0 8px 22px rgba(15,23,42,0.05);
+            min-height: 140px;
+        ">
+            <div style="font-weight:800; font-size:18px; color:{TEXT_MAIN};">{title}</div>
+            <div style="font-size:40px; font-weight:900; line-height:1.1; color:{TEXT_MAIN};">{count}</div>
+            <div style="font-size:18px; color:{TEXT_MAIN};">{pct:.0f}%</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1452,7 +1471,7 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
                 <div style="font-size:20px; font-weight:900; color:{TEXT_MAIN};">
                     Veldvisualisatie • {selected_event} • {selected_team} • {selected_quarter}
                 </div>
-                <div class="subtle-note">Zones zijn gebaseerd op links / midden / rechts in de voorste zone.</div>
+                <div style="font-size:13px; color:{TEXT_SUB};">Zones zijn gebaseerd op links / midden / rechts in de voorste zone.</div>
             </div>
 
             <div class="half-field">
@@ -1553,7 +1572,7 @@ def live_clock():
 # --------------------------------------------------
 inject_custom_css()
 
-st.title("🏑 Hockey Coach Analyse Tool V6 Pro")
+st.title("🏑 Hockey Coach Analyse Tool V6 Pro Fixed")
 st.caption("Professionele coachweergave met live tagging, KPI-dashboard, event feed en veldvisualisatie.")
 
 top1, top2, top3, top4 = st.columns([1.25, 1.25, 0.75, 1.0])
@@ -1716,21 +1735,21 @@ else:
             row2 = st.columns(4)
             with row2[0]:
                 render_kpi_card(
-                    f"Turnover eigen helft → counter",
+                    "Turnover eigen helft → counter",
                     f"{kpi['team_turnover_to_counter_pct']:.0f}%",
                     "Risico na balverlies in eigen helft.",
                     "orange",
                 )
             with row2[1]:
                 render_kpi_card(
-                    f"Entries tegen → schot",
+                    "Entries tegen → schot",
                     f"{kpi['opp_entry_to_shot_pct']:.0f}%",
                     "Hoe vaak de tegenstander van entry naar schot komt.",
                     "red",
                 )
             with row2[2]:
                 render_kpi_card(
-                    f"Schoten tegen → goal",
+                    "Schoten tegen → goal",
                     f"{kpi['opp_shot_to_goal_pct']:.0f}%",
                     "Hoe effectief de tegenstander afrondt.",
                     "red",
@@ -1871,7 +1890,6 @@ else:
             with c5:
                 render_section_card("Actiepunt", sections["Actiepunt"])
             with c6:
-                st.markdown('<div class="pro-card report-textarea">', unsafe_allow_html=True)
                 st.markdown("**Volledig coachrapport**")
                 st.text_area(
                     "Coachrapport",
@@ -1886,7 +1904,6 @@ else:
                     mime="text/plain",
                     use_container_width=True,
                 )
-                st.markdown("</div>", unsafe_allow_html=True)
 
     with tab5:
         st.markdown("### Live event feed")
@@ -1907,7 +1924,7 @@ else:
                         title=card["title"],
                         value=card["value"],
                         subtitle=card["subtitle"],
-                        accent_color=card["accent"],
+                        accent_color=card["accent_color"],
                     )
 
     with tab6:
