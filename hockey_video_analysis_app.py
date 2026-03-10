@@ -10,7 +10,7 @@ except Exception:
     create_client = None
 
 
-st.set_page_config(page_title="Hockey Coach Analyse Tool V3", layout="wide")
+st.set_page_config(page_title="Hockey Coach Analyse Tool V4", layout="wide")
 
 # --------------------------------------------------
 # Defaults
@@ -29,6 +29,7 @@ DEFAULTS = {
     "last_sync_time": None,
     "last_sync_count": 0,
     "auto_notes": "",
+    "ui_mode": "Normale modus",
 }
 
 for key, value in DEFAULTS.items():
@@ -143,16 +144,16 @@ def export_excel(df: pd.DataFrame) -> bytes:
             summary.to_excel(writer, sheet_name="Samenvatting", index=False)
 
             zone_summary = (
-                df[df["event"] == "Cirkelentry"]
-                .groupby(["quarter", "team", "zone"])
+                df[df["zone"].isin(["Linksvoor", "Middenvoor", "Rechtsvoor"])]
+                .groupby(["quarter", "team", "event", "zone"])
                 .size()
                 .reset_index(name="aantal")
-                .sort_values(["quarter", "team", "zone"])
+                .sort_values(["quarter", "team", "event", "zone"])
             )
             zone_summary.to_excel(writer, sheet_name="Zones", index=False)
 
-            report_df = build_quarter_report_df(df)
-            report_df.to_excel(writer, sheet_name="Kwartanalyse", index=False)
+            quarter_df = build_quarter_report_df(df)
+            quarter_df.to_excel(writer, sheet_name="Kwartanalyse", index=False)
 
     buffer.seek(0)
     return buffer.getvalue()
@@ -285,13 +286,13 @@ def reset_all() -> None:
 
 
 # --------------------------------------------------
-# Tactical analysis
+# Analysis
 # --------------------------------------------------
-def dominant_zone_text(df: pd.DataFrame, team: str, quarter: str | None = None) -> str:
+def dominant_zone_text(df: pd.DataFrame, team: str, quarter: str | None = None, event: str = "Cirkelentry") -> str:
     if df.empty:
         return "onbekend"
 
-    mask = (df["team"] == team) & (df["event"] == "Cirkelentry")
+    mask = (df["team"] == team) & (df["event"] == event)
     if quarter:
         mask = mask & (df["quarter"] == quarter)
 
@@ -351,7 +352,6 @@ def quarter_coach_points(df: pd.DataFrame, quarter: str) -> list[str]:
     team_entries = count_events(df, team, "Cirkelentry", quarter)
     opp_entries = count_events(df, opp, "Cirkelentry", quarter)
     team_shots = count_events(df, team, "Schot", quarter) + count_events(df, team, "Schot op goal", quarter)
-    opp_shots = count_events(df, opp, "Schot", quarter) + count_events(df, opp, "Schot op goal", quarter)
     team_goals = count_events(df, team, "Goal", quarter)
     team_high_wins = count_events(df, team, "Hoge balverovering", quarter)
     team_turnovers_own = count_events(df, team, "Turnover eigen helft", quarter)
@@ -375,7 +375,7 @@ def quarter_coach_points(df: pd.DataFrame, quarter: str) -> list[str]:
     if opp_entries >= 4 and team_high_wins == 0:
         points.append(f"{quarter}: tegenstander komt relatief makkelijk tot entries.")
 
-    zone_text = dominant_zone_text(df, team, quarter)
+    zone_text = dominant_zone_text(df, team, quarter, "Cirkelentry")
     if zone_text != "onbekend" and team_entries >= 3:
         points.append(f"{quarter}: meeste eigen entries kwamen via {zone_text}.")
 
@@ -411,8 +411,8 @@ def build_quarter_report_df(df: pd.DataFrame) -> pd.DataFrame:
                 "shots_opponent": opp_shots,
                 "shot_rate_team": round(percent(team_shots, team_entries), 1),
                 "shot_rate_opponent": round(percent(opp_shots, opp_entries), 1),
-                "main_zone_team": dominant_zone_text(df, team, q),
-                "main_zone_opponent": dominant_zone_text(df, opp, q),
+                "main_zone_team": dominant_zone_text(df, team, q, "Cirkelentry"),
+                "main_zone_opponent": dominant_zone_text(df, opp, q, "Cirkelentry"),
                 "coach_points": " | ".join(quarter_coach_points(df, q)),
             }
         )
@@ -495,6 +495,63 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
 
 
 # --------------------------------------------------
+# UI helpers
+# --------------------------------------------------
+def inject_custom_css() -> None:
+    if st.session_state.ui_mode == "Wedstrijdmodus iPad":
+        st.markdown(
+            """
+            <style>
+            div.stButton > button {
+                min-height: 74px;
+                font-size: 22px;
+                font-weight: 700;
+                border-radius: 16px;
+            }
+            div[data-testid="stMetricValue"] {
+                font-size: 34px;
+            }
+            div[data-testid="stMetricLabel"] {
+                font-size: 18px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """
+            <style>
+            div.stButton > button {
+                border-radius: 12px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def render_heatmap_card(title: str, count: int, pct: float, alpha_value: float) -> str:
+    return f"""
+    <div style="
+        background: rgba(49,130,206,{alpha_value});
+        border-radius: 16px;
+        padding: 28px 12px;
+        text-align: center;
+        color: black;
+        min-height: 150px;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        ">
+        <div style="font-weight:700; font-size:20px;">{title}</div>
+        <div style="font-size:42px; font-weight:800; line-height:1.1;">{count}</div>
+        <div style="font-size:20px;">{pct:.0f}%</div>
+    </div>
+    """
+
+
+# --------------------------------------------------
 # Live fragments
 # --------------------------------------------------
 @st.fragment(run_every="2s" if cloud_enabled() else None)
@@ -543,18 +600,22 @@ def live_clock():
 
 
 # --------------------------------------------------
-# UI header
+# Header
 # --------------------------------------------------
-st.title("🏑 Hockey Coach Analyse Tool V3")
-st.write("Live tagging, automatische tactische analyse, veldvisualisatie en realtime sync.")
+inject_custom_css()
 
-top1, top2, top3 = st.columns([1.2, 1.2, 0.8])
+st.title("🏑 Hockey Coach Analyse Tool V4")
+st.write("Met iPad-wedstrijdmodus en verbeterde heatmap/veldvisualisatie.")
+
+top1, top2, top3, top4 = st.columns([1.2, 1.2, 0.8, 1.0])
 with top1:
     st.text_input("Naam eigen team", key="team_name")
 with top2:
     st.text_input("Naam tegenstander", key="opponent_name")
 with top3:
     st.selectbox("Kwart", ["Q1", "Q2", "Q3", "Q4"], key="quarter")
+with top4:
+    st.selectbox("Weergave", ["Normale modus", "Wedstrijdmodus iPad"], key="ui_mode")
 
 sync1, sync2, sync3 = st.columns([2, 1, 1])
 with sync1:
@@ -591,141 +652,214 @@ st.divider()
 st.subheader("⏱ Wedstrijdklok")
 live_clock()
 
-st.divider()
-
-# --------------------------------------------------
-# 1-tap quick bar
-# --------------------------------------------------
-st.subheader("⚡ 1-tap tagging")
 team = st.session_state.team_name
 opp = st.session_state.opponent_name
 
-q1, q2, q3, q4 = st.columns(4)
-with q1:
-    if st.button(f"🔵 Entry links {team}", use_container_width=True):
-        quick_add(team, "Cirkelentry", "Linksvoor")
-with q2:
-    if st.button(f"🔵 Entry midden {team}", use_container_width=True):
-        quick_add(team, "Cirkelentry", "Middenvoor")
-with q3:
-    if st.button(f"🔵 Entry rechts {team}", use_container_width=True):
-        quick_add(team, "Cirkelentry", "Rechtsvoor")
-with q4:
-    if st.button(f"🔵 Goal {team}", use_container_width=True):
-        quick_add(team, "Goal")
-
-q5, q6, q7, q8 = st.columns(4)
-with q5:
-    if st.button(f"🔴 Entry links {opp}", use_container_width=True):
-        quick_add(opp, "Cirkelentry", "Linksvoor")
-with q6:
-    if st.button(f"🔴 Entry midden {opp}", use_container_width=True):
-        quick_add(opp, "Cirkelentry", "Middenvoor")
-with q7:
-    if st.button(f"🔴 Entry rechts {opp}", use_container_width=True):
-        quick_add(opp, "Cirkelentry", "Rechtsvoor")
-with q8:
-    if st.button(f"🔴 Goal {opp}", use_container_width=True):
-        quick_add(opp, "Goal")
-
-st.divider()
-
 # --------------------------------------------------
-# Action buttons
+# iPad match mode
 # --------------------------------------------------
-st.subheader("🎯 Snelle acties")
-a1, a2, a3, a4 = st.columns(4)
-with a1:
-    if st.button("↩️ Undo laatste event", use_container_width=True):
-        remove_last_event()
-        st.session_state.auto_notes = generate_auto_notes(build_df())
-        st.rerun()
-with a2:
-    if st.button("🔄 Handmatige sync", use_container_width=True):
-        sync_from_cloud()
-        st.session_state.auto_notes = generate_auto_notes(build_df())
-        st.rerun()
-with a3:
-    if st.button("📝 Update auto-analyse", use_container_width=True):
-        st.session_state.auto_notes = generate_auto_notes(build_df())
-        st.rerun()
-with a4:
-    if st.button("🗑️ Reset wedstrijd", use_container_width=True):
-        reset_all()
-        st.rerun()
+if st.session_state.ui_mode == "Wedstrijdmodus iPad":
+    st.divider()
+    st.subheader("🏑 Wedstrijdmodus")
 
-st.divider()
+    r1 = st.columns(4)
+    with r1[0]:
+        if st.button(f"🔵 Entry links", key="ipad_team_entry_left", use_container_width=True):
+            quick_add(team, "Cirkelentry", "Linksvoor")
+    with r1[1]:
+        if st.button(f"🔵 Entry midden", key="ipad_team_entry_mid", use_container_width=True):
+            quick_add(team, "Cirkelentry", "Middenvoor")
+    with r1[2]:
+        if st.button(f"🔵 Entry rechts", key="ipad_team_entry_right", use_container_width=True):
+            quick_add(team, "Cirkelentry", "Rechtsvoor")
+    with r1[3]:
+        if st.button(f"🔵 Goal", key="ipad_team_goal", use_container_width=True):
+            quick_add(team, "Goal")
 
-# --------------------------------------------------
-# Detailed tagging
-# --------------------------------------------------
-st.subheader("📌 Uitgebreide tagging")
+    r2 = st.columns(4)
+    with r2[0]:
+        if st.button(f"🔵 Schot", key="ipad_team_shot", use_container_width=True):
+            quick_add(team, "Schot")
+    with r2[1]:
+        if st.button(f"🔵 Schot op goal", key="ipad_team_shot_goal", use_container_width=True):
+            quick_add(team, "Schot op goal")
+    with r2[2]:
+        if st.button(f"🔵 Hoge balverovering", key="ipad_team_highwin", use_container_width=True):
+            quick_add(team, "Hoge balverovering")
+    with r2[3]:
+        if st.button(f"🔵 Counter tegen", key="ipad_team_counter", use_container_width=True):
+            quick_add(team, "Counter tegen na balverlies")
 
-left, right = st.columns(2)
+    r3 = st.columns(4)
+    with r3[0]:
+        if st.button(f"🔴 Entry links", key="ipad_opp_entry_left", use_container_width=True):
+            quick_add(opp, "Cirkelentry", "Linksvoor")
+    with r3[1]:
+        if st.button(f"🔴 Entry midden", key="ipad_opp_entry_mid", use_container_width=True):
+            quick_add(opp, "Cirkelentry", "Middenvoor")
+    with r3[2]:
+        if st.button(f"🔴 Entry rechts", key="ipad_opp_entry_right", use_container_width=True):
+            quick_add(opp, "Cirkelentry", "Rechtsvoor")
+    with r3[3]:
+        if st.button(f"🔴 Goal", key="ipad_opp_goal", use_container_width=True):
+            quick_add(opp, "Goal")
 
-with left:
-    st.markdown(f"### 🔵 {team}")
+    r4 = st.columns(4)
+    with r4[0]:
+        if st.button(f"🔴 Schot", key="ipad_opp_shot", use_container_width=True):
+            quick_add(opp, "Schot")
+    with r4[1]:
+        if st.button(f"🔴 Schot op goal", key="ipad_opp_shot_goal", use_container_width=True):
+            quick_add(opp, "Schot op goal")
+    with r4[2]:
+        if st.button(f"🔴 Hoge balverovering", key="ipad_opp_highwin", use_container_width=True):
+            quick_add(opp, "Hoge balverovering")
+    with r4[3]:
+        if st.button(f"🔴 Counter tegen", key="ipad_opp_counter", use_container_width=True):
+            quick_add(opp, "Counter tegen na balverlies")
 
-    st.markdown("**Afronding**")
-    l1, l2, l3, l4 = st.columns(4)
-    if l1.button("Schot", key="team_shot", use_container_width=True):
-        quick_add(team, "Schot")
-    if l2.button("Schot op goal", key="team_shot_goal", use_container_width=True):
-        quick_add(team, "Schot op goal")
-    if l3.button("Strafcorner", key="team_pc", use_container_width=True):
-        quick_add(team, "Strafcorner")
-    if l4.button("Turnover", key="team_turnover", use_container_width=True):
-        quick_add(team, "Turnover")
+    r5 = st.columns(4)
+    with r5[0]:
+        if st.button("↩️ Undo", key="ipad_undo", use_container_width=True):
+            remove_last_event()
+            st.session_state.auto_notes = generate_auto_notes(build_df())
+            st.rerun()
+    with r5[1]:
+        if st.button("🔄 Sync", key="ipad_sync", use_container_width=True):
+            sync_from_cloud()
+            st.session_state.auto_notes = generate_auto_notes(build_df())
+            st.rerun()
+    with r5[2]:
+        if st.button("📝 Analyse", key="ipad_analysis", use_container_width=True):
+            st.session_state.auto_notes = generate_auto_notes(build_df())
+            st.rerun()
+    with r5[3]:
+        if st.button("🗑️ Reset", key="ipad_reset", use_container_width=True):
+            reset_all()
+            st.rerun()
 
-    st.markdown("**Press / omschakeling**")
-    l5, l6, l7, l8 = st.columns(4)
-    if l5.button("Hoge balverovering", key="team_highwin", use_container_width=True):
-        quick_add(team, "Hoge balverovering")
-    if l6.button("Press succes", key="team_press", use_container_width=True):
-        quick_add(team, "Press succes")
-    if l7.button("Counter tegen", key="team_counter", use_container_width=True):
-        quick_add(team, "Counter tegen na balverlies")
-    if l8.button("Opbouw mislukt", key="team_buildfail", use_container_width=True):
-        quick_add(team, "Opbouw mislukt")
+else:
+    st.divider()
+    st.subheader("⚡ 1-tap tagging")
 
-    st.markdown("**Verdedigen / balverlies**")
-    l9, l10 = st.columns(2)
-    if l9.button("Turnover eigen helft", key="team_turnown", use_container_width=True):
-        quick_add(team, "Turnover eigen helft")
-    if l10.button("Cirkelverdediging fout", key="team_circleerr", use_container_width=True):
-        quick_add(team, "Cirkelverdediging fout")
+    q1, q2, q3, q4 = st.columns(4)
+    with q1:
+        if st.button(f"🔵 Entry links {team}", use_container_width=True):
+            quick_add(team, "Cirkelentry", "Linksvoor")
+    with q2:
+        if st.button(f"🔵 Entry midden {team}", use_container_width=True):
+            quick_add(team, "Cirkelentry", "Middenvoor")
+    with q3:
+        if st.button(f"🔵 Entry rechts {team}", use_container_width=True):
+            quick_add(team, "Cirkelentry", "Rechtsvoor")
+    with q4:
+        if st.button(f"🔵 Goal {team}", use_container_width=True):
+            quick_add(team, "Goal")
 
-with right:
-    st.markdown(f"### 🔴 {opp}")
+    q5, q6, q7, q8 = st.columns(4)
+    with q5:
+        if st.button(f"🔴 Entry links {opp}", use_container_width=True):
+            quick_add(opp, "Cirkelentry", "Linksvoor")
+    with q6:
+        if st.button(f"🔴 Entry midden {opp}", use_container_width=True):
+            quick_add(opp, "Cirkelentry", "Middenvoor")
+    with q7:
+        if st.button(f"🔴 Entry rechts {opp}", use_container_width=True):
+            quick_add(opp, "Cirkelentry", "Rechtsvoor")
+    with q8:
+        if st.button(f"🔴 Goal {opp}", use_container_width=True):
+            quick_add(opp, "Goal")
 
-    st.markdown("**Afronding**")
-    r1, r2, r3, r4 = st.columns(4)
-    if r1.button("Schot", key="opp_shot", use_container_width=True):
-        quick_add(opp, "Schot")
-    if r2.button("Schot op goal", key="opp_shot_goal", use_container_width=True):
-        quick_add(opp, "Schot op goal")
-    if r3.button("Strafcorner", key="opp_pc", use_container_width=True):
-        quick_add(opp, "Strafcorner")
-    if r4.button("Turnover", key="opp_turnover", use_container_width=True):
-        quick_add(opp, "Turnover")
+    st.divider()
+    st.subheader("🎯 Snelle acties")
+    a1, a2, a3, a4 = st.columns(4)
+    with a1:
+        if st.button("↩️ Undo laatste event", use_container_width=True):
+            remove_last_event()
+            st.session_state.auto_notes = generate_auto_notes(build_df())
+            st.rerun()
+    with a2:
+        if st.button("🔄 Handmatige sync", use_container_width=True):
+            sync_from_cloud()
+            st.session_state.auto_notes = generate_auto_notes(build_df())
+            st.rerun()
+    with a3:
+        if st.button("📝 Update auto-analyse", use_container_width=True):
+            st.session_state.auto_notes = generate_auto_notes(build_df())
+            st.rerun()
+    with a4:
+        if st.button("🗑️ Reset wedstrijd", use_container_width=True):
+            reset_all()
+            st.rerun()
 
-    st.markdown("**Press / omschakeling**")
-    r5, r6, r7, r8 = st.columns(4)
-    if r5.button("Hoge balverovering", key="opp_highwin", use_container_width=True):
-        quick_add(opp, "Hoge balverovering")
-    if r6.button("Press succes", key="opp_press", use_container_width=True):
-        quick_add(opp, "Press succes")
-    if r7.button("Counter tegen", key="opp_counter", use_container_width=True):
-        quick_add(opp, "Counter tegen na balverlies")
-    if r8.button("Opbouw mislukt", key="opp_buildfail", use_container_width=True):
-        quick_add(opp, "Opbouw mislukt")
+    st.divider()
+    st.subheader("📌 Uitgebreide tagging")
 
-    st.markdown("**Verdedigen / balverlies**")
-    r9, r10 = st.columns(2)
-    if r9.button("Turnover eigen helft", key="opp_turnown", use_container_width=True):
-        quick_add(opp, "Turnover eigen helft")
-    if r10.button("Cirkelverdediging fout", key="opp_circleerr", use_container_width=True):
-        quick_add(opp, "Cirkelverdediging fout")
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown(f"### 🔵 {team}")
+
+        st.markdown("**Afronding**")
+        l1, l2, l3, l4 = st.columns(4)
+        if l1.button("Schot", key="team_shot", use_container_width=True):
+            quick_add(team, "Schot")
+        if l2.button("Schot op goal", key="team_shot_goal", use_container_width=True):
+            quick_add(team, "Schot op goal")
+        if l3.button("Strafcorner", key="team_pc", use_container_width=True):
+            quick_add(team, "Strafcorner")
+        if l4.button("Turnover", key="team_turnover", use_container_width=True):
+            quick_add(team, "Turnover")
+
+        st.markdown("**Press / omschakeling**")
+        l5, l6, l7, l8 = st.columns(4)
+        if l5.button("Hoge balverovering", key="team_highwin", use_container_width=True):
+            quick_add(team, "Hoge balverovering")
+        if l6.button("Press succes", key="team_press", use_container_width=True):
+            quick_add(team, "Press succes")
+        if l7.button("Counter tegen", key="team_counter", use_container_width=True):
+            quick_add(team, "Counter tegen na balverlies")
+        if l8.button("Opbouw mislukt", key="team_buildfail", use_container_width=True):
+            quick_add(team, "Opbouw mislukt")
+
+        st.markdown("**Verdedigen / balverlies**")
+        l9, l10 = st.columns(2)
+        if l9.button("Turnover eigen helft", key="team_turnown", use_container_width=True):
+            quick_add(team, "Turnover eigen helft")
+        if l10.button("Cirkelverdediging fout", key="team_circleerr", use_container_width=True):
+            quick_add(team, "Cirkelverdediging fout")
+
+    with right:
+        st.markdown(f"### 🔴 {opp}")
+
+        st.markdown("**Afronding**")
+        r1, r2, r3, r4 = st.columns(4)
+        if r1.button("Schot", key="opp_shot", use_container_width=True):
+            quick_add(opp, "Schot")
+        if r2.button("Schot op goal", key="opp_shot_goal", use_container_width=True):
+            quick_add(opp, "Schot op goal")
+        if r3.button("Strafcorner", key="opp_pc", use_container_width=True):
+            quick_add(opp, "Strafcorner")
+        if r4.button("Turnover", key="opp_turnover", use_container_width=True):
+            quick_add(opp, "Turnover")
+
+        st.markdown("**Press / omschakeling**")
+        r5, r6, r7, r8 = st.columns(4)
+        if r5.button("Hoge balverovering", key="opp_highwin", use_container_width=True):
+            quick_add(opp, "Hoge balverovering")
+        if r6.button("Press succes", key="opp_press", use_container_width=True):
+            quick_add(opp, "Press succes")
+        if r7.button("Counter tegen", key="opp_counter", use_container_width=True):
+            quick_add(opp, "Counter tegen na balverlies")
+        if r8.button("Opbouw mislukt", key="opp_buildfail", use_container_width=True):
+            quick_add(opp, "Opbouw mislukt")
+
+        st.markdown("**Verdedigen / balverlies**")
+        r9, r10 = st.columns(2)
+        if r9.button("Turnover eigen helft", key="opp_turnown", use_container_width=True):
+            quick_add(opp, "Turnover eigen helft")
+        if r10.button("Cirkelverdediging fout", key="opp_circleerr", use_container_width=True):
+            quick_add(opp, "Cirkelverdediging fout")
 
 st.divider()
 
@@ -734,7 +868,7 @@ st.divider()
 # --------------------------------------------------
 df = build_df()
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["Dashboard", "Aanval", "Press/omschakeling", "Veldkaart", "Auto-analyse", "Eventlog"]
+    ["Dashboard", "Aanval", "Press/omschakeling", "Heatmap", "Auto-analyse", "Eventlog"]
 )
 
 with tab1:
@@ -782,10 +916,17 @@ with tab2:
         st.info("Nog geen aanvalsdataset.")
     else:
         entries = df[df["event"] == "Cirkelentry"].copy()
+
         m1, m2, m3 = st.columns(3)
         m1.metric(f"Cirkelentries {team}", count_events(df, team, "Cirkelentry"))
-        m2.metric(f"Shot rate {team}", f"{percent(count_events(df, team, 'Schot') + count_events(df, team, 'Schot op goal'), count_events(df, team, 'Cirkelentry')):.0f}%")
-        m3.metric(f"Conversie {team}", f"{percent(count_events(df, team, 'Goal'), count_events(df, team, 'Schot') + count_events(df, team, 'Schot op goal')):.0f}%")
+        m2.metric(
+            f"Shot rate {team}",
+            f"{percent(count_events(df, team, 'Schot') + count_events(df, team, 'Schot op goal'), count_events(df, team, 'Cirkelentry')):.0f}%"
+        )
+        m3.metric(
+            f"Conversie {team}",
+            f"{percent(count_events(df, team, 'Goal'), count_events(df, team, 'Schot') + count_events(df, team, 'Schot op goal')):.0f}%"
+        )
 
         st.subheader("Cirkelentries per flank")
         if entries.empty:
@@ -827,23 +968,25 @@ with tab3:
         p8.metric(f"Press efficiëntie {opp}", f"{opp_press_eff:.0f}%")
 
 with tab4:
-    st.subheader("🗺️ Veldkaart / heatmap-weergave")
+    st.subheader("🗺️ Heatmap / veldvisualisatie")
 
     if df.empty:
-        st.info("Nog geen data voor veldvisualisatie.")
+        st.info("Nog geen data voor heatmap.")
     else:
-        map_team = st.selectbox(
-            "Kies team",
-            [team, opp],
-            key="fieldmap_team"
-        )
-        map_quarter = st.selectbox(
-            "Kies kwart",
-            ["Alles", "Q1", "Q2", "Q3", "Q4"],
-            key="fieldmap_quarter"
+        map_team = st.selectbox("Kies team", [team, opp], key="heatmap_team")
+        map_quarter = st.selectbox("Kies kwart", ["Alles", "Q1", "Q2", "Q3", "Q4"], key="heatmap_quarter")
+        map_event = st.selectbox(
+            "Kies eventtype",
+            ["Cirkelentry", "Schot", "Schot op goal", "Goal"],
+            key="heatmap_event"
         )
 
-        map_df = df[(df["team"] == map_team) & (df["event"] == "Cirkelentry")].copy()
+        map_df = df[
+            (df["team"] == map_team)
+            & (df["event"] == map_event)
+            & (df["zone"].isin(["Linksvoor", "Middenvoor", "Rechtsvoor"]))
+        ].copy()
+
         if map_quarter != "Alles":
             map_df = map_df[map_df["quarter"] == map_quarter]
 
@@ -854,40 +997,29 @@ with tab4:
         }
         total = sum(counts.values())
         pcts = {k: percent(v, total) for k, v in counts.items()}
+        max_count = max(counts.values()) if total > 0 else 1
+
+        def alpha(val: int) -> float:
+            base = 0.12
+            if max_count <= 0:
+                return base
+            return min(0.9, base + (val / max_count) * 0.75)
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Linksvoor", counts["Linksvoor"])
         c2.metric("Middenvoor", counts["Middenvoor"])
         c3.metric("Rechtsvoor", counts["Rechtsvoor"])
 
-        max_count = max(counts.values()) if total > 0 else 1
-
-        def alpha(val: int) -> float:
-            base = 0.15
-            return min(0.85, base + (val / max_count) * 0.7) if max_count > 0 else 0.15
-
         st.markdown(
             f"""
 <div style="border:2px solid #2c7a7b; border-radius:18px; padding:18px; background:#f7fafc;">
-  <div style="text-align:center; font-weight:700; margin-bottom:14px; color:black;">
-    Zoneverdeling cirkelentries • {map_team} • {map_quarter}
+  <div style="text-align:center; font-weight:700; margin-bottom:14px; color:black; font-size:22px;">
+    Heatmap {map_event} • {map_team} • {map_quarter}
   </div>
-  <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; text-align:center; color:black;">
-    <div style="background:rgba(49,130,206,{alpha(counts['Linksvoor'])}); border-radius:14px; padding:26px 10px;">
-      <div style="font-weight:700;">Linksvoor</div>
-      <div style="font-size:36px; font-weight:800;">{counts['Linksvoor']}</div>
-      <div>{pcts['Linksvoor']:.0f}%</div>
-    </div>
-    <div style="background:rgba(49,130,206,{alpha(counts['Middenvoor'])}); border-radius:14px; padding:26px 10px;">
-      <div style="font-weight:700;">Middenvoor</div>
-      <div style="font-size:36px; font-weight:800;">{counts['Middenvoor']}</div>
-      <div>{pcts['Middenvoor']:.0f}%</div>
-    </div>
-    <div style="background:rgba(49,130,206,{alpha(counts['Rechtsvoor'])}); border-radius:14px; padding:26px 10px;">
-      <div style="font-weight:700;">Rechtsvoor</div>
-      <div style="font-size:36px; font-weight:800;">{counts['Rechtsvoor']}</div>
-      <div>{pcts['Rechtsvoor']:.0f}%</div>
-    </div>
+  <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px;">
+    {render_heatmap_card("Linksvoor", counts["Linksvoor"], pcts["Linksvoor"], alpha(counts["Linksvoor"]))}
+    {render_heatmap_card("Middenvoor", counts["Middenvoor"], pcts["Middenvoor"], alpha(counts["Middenvoor"]))}
+    {render_heatmap_card("Rechtsvoor", counts["Rechtsvoor"], pcts["Rechtsvoor"], alpha(counts["Rechtsvoor"]))}
   </div>
 </div>
             """,
@@ -896,9 +1028,38 @@ with tab4:
 
         if total > 0:
             dominant_zone = max(counts.items(), key=lambda x: x[1])[0].lower()
-            st.info(f"Meeste cirkelentries van {map_team} kwamen via {dominant_zone}.")
+            st.info(f"De meeste {map_event.lower()}s van {map_team} kwamen via {dominant_zone}.")
         else:
-            st.info("Nog geen cirkelentries voor deze selectie.")
+            st.info("Nog geen zone-data voor deze selectie. Let op: alleen events met zone worden hier zichtbaar.")
+
+        st.subheader("Heatmap samenvatting")
+        summary_rows = []
+        for event_name in ["Cirkelentry", "Schot", "Schot op goal", "Goal"]:
+            sub_df = df[
+                (df["team"] == map_team)
+                & (df["event"] == event_name)
+                & (df["zone"].isin(["Linksvoor", "Middenvoor", "Rechtsvoor"]))
+            ].copy()
+            if map_quarter != "Alles":
+                sub_df = sub_df[sub_df["quarter"] == map_quarter]
+
+            zone_counts = sub_df["zone"].value_counts()
+            if sub_df.empty:
+                dominant = "geen data"
+                total_event = 0
+            else:
+                dominant = zone_counts.idxmax()
+                total_event = len(sub_df)
+
+            summary_rows.append(
+                {
+                    "event": event_name,
+                    "totaal": total_event,
+                    "dominante_zone": dominant,
+                }
+            )
+
+        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
 
 with tab5:
     if df.empty:
@@ -908,11 +1069,7 @@ with tab5:
             st.session_state.auto_notes = generate_auto_notes(df)
 
         st.subheader("Automatische tactische analyse")
-        st.text_area(
-            "Coachrapport",
-            value=st.session_state.auto_notes,
-            height=360,
-        )
+        st.text_area("Coachrapport", value=st.session_state.auto_notes, height=360)
 
         st.subheader("Tactische patronen")
         patterns = generate_tactical_patterns(df)
@@ -975,3 +1132,4 @@ with tab6:
                 remove_last_event()
                 st.session_state.auto_notes = generate_auto_notes(build_df())
                 st.rerun()
+            
