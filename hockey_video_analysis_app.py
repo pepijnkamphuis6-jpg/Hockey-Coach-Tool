@@ -10,7 +10,7 @@ except Exception:
     create_client = None
 
 
-st.set_page_config(page_title="Hockey Coach Analyse Tool V5", layout="wide")
+st.set_page_config(page_title="Hockey Coach Analyse Tool V5.1", layout="wide")
 
 # --------------------------------------------------
 # Defaults
@@ -465,7 +465,7 @@ def inject_custom_css() -> None:
             <style>
             div.stButton > button {
                 min-height: 74px;
-                font-size: 22px;
+                font-size: 21px;
                 font-weight: 700;
                 border-radius: 16px;
             }
@@ -490,6 +490,26 @@ def inject_custom_css() -> None:
             """,
             unsafe_allow_html=True,
         )
+
+
+def render_team_header(title: str, color: str) -> None:
+    st.markdown(
+        f"""
+        <div style="
+            background:{color};
+            color:white;
+            padding:12px 16px;
+            border-radius:14px;
+            font-weight:700;
+            font-size:22px;
+            margin-bottom:10px;
+            text-align:center;
+        ">
+            {title}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_heatmap_card(title: str, count: int, pct: float, alpha_value: float) -> None:
@@ -520,6 +540,63 @@ def heatmap_alpha(value: int, max_value: int) -> float:
     if max_value <= 0:
         return base
     return min(0.9, base + (value / max_value) * 0.75)
+
+
+def render_team_tagging(team_name: str, prefix: str, header_color: str) -> None:
+    render_team_header(team_name, header_color)
+
+    st.markdown("**Cirkelentries**")
+    e1, e2, e3 = st.columns(3)
+    if e1.button("Entry links", key=f"{prefix}_entry_left", use_container_width=True):
+        quick_add(team_name, "Cirkelentry", "Linksvoor")
+    if e2.button("Entry midden", key=f"{prefix}_entry_mid", use_container_width=True):
+        quick_add(team_name, "Cirkelentry", "Middenvoor")
+    if e3.button("Entry rechts", key=f"{prefix}_entry_right", use_container_width=True):
+        quick_add(team_name, "Cirkelentry", "Rechtsvoor")
+
+    st.markdown("**Schoten met zone**")
+    s1, s2, s3 = st.columns(3)
+    if s1.button("Schot links", key=f"{prefix}_shot_left", use_container_width=True):
+        quick_add(team_name, "Schot", "Linksvoor")
+    if s2.button("Schot midden", key=f"{prefix}_shot_mid", use_container_width=True):
+        quick_add(team_name, "Schot", "Middenvoor")
+    if s3.button("Schot rechts", key=f"{prefix}_shot_right", use_container_width=True):
+        quick_add(team_name, "Schot", "Rechtsvoor")
+
+    sog1, sog2, sog3 = st.columns(3)
+    if sog1.button("Schot op goal links", key=f"{prefix}_sog_left", use_container_width=True):
+        quick_add(team_name, "Schot op goal", "Linksvoor")
+    if sog2.button("Schot op goal midden", key=f"{prefix}_sog_mid", use_container_width=True):
+        quick_add(team_name, "Schot op goal", "Middenvoor")
+    if sog3.button("Schot op goal rechts", key=f"{prefix}_sog_right", use_container_width=True):
+        quick_add(team_name, "Schot op goal", "Rechtsvoor")
+
+    g1, g2, g3 = st.columns(3)
+    if g1.button("Goal links", key=f"{prefix}_goal_left", use_container_width=True):
+        quick_add(team_name, "Goal", "Linksvoor")
+    if g2.button("Goal midden", key=f"{prefix}_goal_mid", use_container_width=True):
+        quick_add(team_name, "Goal", "Middenvoor")
+    if g3.button("Goal rechts", key=f"{prefix}_goal_right", use_container_width=True):
+        quick_add(team_name, "Goal", "Rechtsvoor")
+
+    st.markdown("**Overig**")
+    o1, o2, o3, o4 = st.columns(4)
+    if o1.button("Strafcorner", key=f"{prefix}_pc", use_container_width=True):
+        quick_add(team_name, "Strafcorner")
+    if o2.button("Hoge balverovering", key=f"{prefix}_highwin", use_container_width=True):
+        quick_add(team_name, "Hoge balverovering")
+    if o3.button("Press succes", key=f"{prefix}_press", use_container_width=True):
+        quick_add(team_name, "Press succes")
+    if o4.button("Opbouw mislukt", key=f"{prefix}_buildfail", use_container_width=True):
+        quick_add(team_name, "Opbouw mislukt")
+
+    d1, d2, d3 = st.columns(3)
+    if d1.button("Turnover", key=f"{prefix}_turnover", use_container_width=True):
+        quick_add(team_name, "Turnover")
+    if d2.button("Turnover eigen helft", key=f"{prefix}_turnown", use_container_width=True):
+        quick_add(team_name, "Turnover eigen helft")
+    if d3.button("Counter tegen", key=f"{prefix}_counter", use_container_width=True):
+        quick_add(team_name, "Counter tegen na balverlies")
 
 
 # --------------------------------------------------
@@ -575,8 +652,8 @@ def live_clock():
 # --------------------------------------------------
 inject_custom_css()
 
-st.title("🏑 Hockey Coach Analyse Tool V5")
-st.write("Met stabiele heatmap, iPad-wedstrijdmodus en automatische analyse.")
+st.title("🏑 Hockey Coach Analyse Tool V5.1")
+st.write("Met volledige iPad-wedstrijdmodus, stabiele heatmap en verbeterde teamweergave.")
 
 top1, top2, top3, top4 = st.columns([1.2, 1.2, 0.8, 1.0])
 with top1:
@@ -626,259 +703,42 @@ live_clock()
 team = st.session_state.team_name
 opp = st.session_state.opponent_name
 
-# --------------------------------------------------
-# iPad or normal mode
-# --------------------------------------------------
+st.divider()
+st.subheader("🎯 Snelle acties")
+a1, a2, a3, a4 = st.columns(4)
+with a1:
+    if st.button("↩️ Undo laatste event", use_container_width=True):
+        remove_last_event()
+        st.session_state.auto_notes = generate_auto_notes(build_df())
+        st.rerun()
+with a2:
+    if st.button("🔄 Handmatige sync", use_container_width=True):
+        sync_from_cloud()
+        st.session_state.auto_notes = generate_auto_notes(build_df())
+        st.rerun()
+with a3:
+    if st.button("📝 Update auto-analyse", use_container_width=True):
+        st.session_state.auto_notes = generate_auto_notes(build_df())
+        st.rerun()
+with a4:
+    if st.button("🗑️ Reset wedstrijd", use_container_width=True):
+        reset_all()
+        st.rerun()
+
+st.divider()
+
 if st.session_state.ui_mode == "Wedstrijdmodus iPad":
-    st.divider()
-    st.subheader("🏑 Wedstrijdmodus")
-
-    r1 = st.columns(4)
-    with r1[0]:
-        if st.button("🔵 Entry links", key="ipad_team_entry_left", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Linksvoor")
-    with r1[1]:
-        if st.button("🔵 Entry midden", key="ipad_team_entry_mid", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Middenvoor")
-    with r1[2]:
-        if st.button("🔵 Entry rechts", key="ipad_team_entry_right", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Rechtsvoor")
-    with r1[3]:
-        if st.button("🔵 Goal", key="ipad_team_goal", use_container_width=True):
-            quick_add(team, "Goal")
-
-    r2 = st.columns(4)
-    with r2[0]:
-        if st.button("🔵 Schot links", key="ipad_team_shot_left", use_container_width=True):
-            quick_add(team, "Schot", "Linksvoor")
-    with r2[1]:
-        if st.button("🔵 Schot midden", key="ipad_team_shot_mid", use_container_width=True):
-            quick_add(team, "Schot", "Middenvoor")
-    with r2[2]:
-        if st.button("🔵 Schot rechts", key="ipad_team_shot_right", use_container_width=True):
-            quick_add(team, "Schot", "Rechtsvoor")
-    with r2[3]:
-        if st.button("🔵 Schot op goal", key="ipad_team_shot_goal", use_container_width=True):
-            quick_add(team, "Schot op goal")
-
-    r3 = st.columns(4)
-    with r3[0]:
-        if st.button("🔴 Entry links", key="ipad_opp_entry_left", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Linksvoor")
-    with r3[1]:
-        if st.button("🔴 Entry midden", key="ipad_opp_entry_mid", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Middenvoor")
-    with r3[2]:
-        if st.button("🔴 Entry rechts", key="ipad_opp_entry_right", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Rechtsvoor")
-    with r3[3]:
-        if st.button("🔴 Goal", key="ipad_opp_goal", use_container_width=True):
-            quick_add(opp, "Goal")
-
-    r4 = st.columns(4)
-    with r4[0]:
-        if st.button("🔴 Schot links", key="ipad_opp_shot_left", use_container_width=True):
-            quick_add(opp, "Schot", "Linksvoor")
-    with r4[1]:
-        if st.button("🔴 Schot midden", key="ipad_opp_shot_mid", use_container_width=True):
-            quick_add(opp, "Schot", "Middenvoor")
-    with r4[2]:
-        if st.button("🔴 Schot rechts", key="ipad_opp_shot_right", use_container_width=True):
-            quick_add(opp, "Schot", "Rechtsvoor")
-    with r4[3]:
-        if st.button("🔴 Schot op goal", key="ipad_opp_shot_goal", use_container_width=True):
-            quick_add(opp, "Schot op goal")
-
-    r5 = st.columns(4)
-    with r5[0]:
-        if st.button("↩️ Undo", key="ipad_undo", use_container_width=True):
-            remove_last_event()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
-            st.rerun()
-    with r5[1]:
-        if st.button("🔄 Sync", key="ipad_sync", use_container_width=True):
-            sync_from_cloud()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
-            st.rerun()
-    with r5[2]:
-        if st.button("📝 Analyse", key="ipad_analysis", use_container_width=True):
-            st.session_state.auto_notes = generate_auto_notes(build_df())
-            st.rerun()
-    with r5[3]:
-        if st.button("🗑️ Reset", key="ipad_reset", use_container_width=True):
-            reset_all()
-            st.rerun()
-
+    st.subheader("🏑 Wedstrijdmodus iPad")
 else:
-    st.divider()
-    st.subheader("⚡ 1-tap tagging")
-
-    q1, q2, q3, q4 = st.columns(4)
-    with q1:
-        if st.button(f"🔵 Entry links {team}", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Linksvoor")
-    with q2:
-        if st.button(f"🔵 Entry midden {team}", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Middenvoor")
-    with q3:
-        if st.button(f"🔵 Entry rechts {team}", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Rechtsvoor")
-    with q4:
-        if st.button(f"🔵 Goal {team}", use_container_width=True):
-            quick_add(team, "Goal")
-
-    q5, q6, q7, q8 = st.columns(4)
-    with q5:
-        if st.button(f"🔴 Entry links {opp}", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Linksvoor")
-    with q6:
-        if st.button(f"🔴 Entry midden {opp}", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Middenvoor")
-    with q7:
-        if st.button(f"🔴 Entry rechts {opp}", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Rechtsvoor")
-    with q8:
-        if st.button(f"🔴 Goal {opp}", use_container_width=True):
-            quick_add(opp, "Goal")
-
-    st.divider()
-    st.subheader("🎯 Snelle acties")
-    a1, a2, a3, a4 = st.columns(4)
-    with a1:
-        if st.button("↩️ Undo laatste event", use_container_width=True):
-            remove_last_event()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
-            st.rerun()
-    with a2:
-        if st.button("🔄 Handmatige sync", use_container_width=True):
-            sync_from_cloud()
-            st.session_state.auto_notes = generate_auto_notes(build_df())
-            st.rerun()
-    with a3:
-        if st.button("📝 Update auto-analyse", use_container_width=True):
-            st.session_state.auto_notes = generate_auto_notes(build_df())
-            st.rerun()
-    with a4:
-        if st.button("🗑️ Reset wedstrijd", use_container_width=True):
-            reset_all()
-            st.rerun()
-
-    st.divider()
     st.subheader("📌 Uitgebreide tagging")
 
-    left, right = st.columns(2)
+left, right = st.columns(2)
 
-    with left:
-        st.markdown(f"### 🔵 {team}")
+with left:
+    render_team_tagging(team, "team", "#2563eb")
 
-        st.markdown("**Cirkelentries**")
-        e1, e2, e3 = st.columns(3)
-        if e1.button("Entry links", key="team_entry_left", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Linksvoor")
-        if e2.button("Entry midden", key="team_entry_mid", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Middenvoor")
-        if e3.button("Entry rechts", key="team_entry_right", use_container_width=True):
-            quick_add(team, "Cirkelentry", "Rechtsvoor")
-
-        st.markdown("**Schoten met zone**")
-        s1, s2, s3 = st.columns(3)
-        if s1.button("Schot links", key="team_shot_left", use_container_width=True):
-            quick_add(team, "Schot", "Linksvoor")
-        if s2.button("Schot midden", key="team_shot_mid", use_container_width=True):
-            quick_add(team, "Schot", "Middenvoor")
-        if s3.button("Schot rechts", key="team_shot_right", use_container_width=True):
-            quick_add(team, "Schot", "Rechtsvoor")
-
-        sog1, sog2, sog3 = st.columns(3)
-        if sog1.button("Schot op goal links", key="team_sog_left", use_container_width=True):
-            quick_add(team, "Schot op goal", "Linksvoor")
-        if sog2.button("Schot op goal midden", key="team_sog_mid", use_container_width=True):
-            quick_add(team, "Schot op goal", "Middenvoor")
-        if sog3.button("Schot op goal rechts", key="team_sog_right", use_container_width=True):
-            quick_add(team, "Schot op goal", "Rechtsvoor")
-
-        g1, g2, g3 = st.columns(3)
-        if g1.button("Goal links", key="team_goal_left", use_container_width=True):
-            quick_add(team, "Goal", "Linksvoor")
-        if g2.button("Goal midden", key="team_goal_mid", use_container_width=True):
-            quick_add(team, "Goal", "Middenvoor")
-        if g3.button("Goal rechts", key="team_goal_right", use_container_width=True):
-            quick_add(team, "Goal", "Rechtsvoor")
-
-        st.markdown("**Overig**")
-        o1, o2, o3, o4 = st.columns(4)
-        if o1.button("Strafcorner", key="team_pc", use_container_width=True):
-            quick_add(team, "Strafcorner")
-        if o2.button("Hoge balverovering", key="team_highwin", use_container_width=True):
-            quick_add(team, "Hoge balverovering")
-        if o3.button("Press succes", key="team_press", use_container_width=True):
-            quick_add(team, "Press succes")
-        if o4.button("Opbouw mislukt", key="team_buildfail", use_container_width=True):
-            quick_add(team, "Opbouw mislukt")
-
-        d1, d2, d3 = st.columns(3)
-        if d1.button("Turnover", key="team_turnover", use_container_width=True):
-            quick_add(team, "Turnover")
-        if d2.button("Turnover eigen helft", key="team_turnown", use_container_width=True):
-            quick_add(team, "Turnover eigen helft")
-        if d3.button("Counter tegen", key="team_counter", use_container_width=True):
-            quick_add(team, "Counter tegen na balverlies")
-
-    with right:
-        st.markdown(f"### 🔴 {opp}")
-
-        st.markdown("**Cirkelentries**")
-        e1, e2, e3 = st.columns(3)
-        if e1.button("Entry links", key="opp_entry_left", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Linksvoor")
-        if e2.button("Entry midden", key="opp_entry_mid", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Middenvoor")
-        if e3.button("Entry rechts", key="opp_entry_right", use_container_width=True):
-            quick_add(opp, "Cirkelentry", "Rechtsvoor")
-
-        st.markdown("**Schoten met zone**")
-        s1, s2, s3 = st.columns(3)
-        if s1.button("Schot links", key="opp_shot_left", use_container_width=True):
-            quick_add(opp, "Schot", "Linksvoor")
-        if s2.button("Schot midden", key="opp_shot_mid", use_container_width=True):
-            quick_add(opp, "Schot", "Middenvoor")
-        if s3.button("Schot rechts", key="opp_shot_right", use_container_width=True):
-            quick_add(opp, "Schot", "Rechtsvoor")
-
-        sog1, sog2, sog3 = st.columns(3)
-        if sog1.button("Schot op goal links", key="opp_sog_left", use_container_width=True):
-            quick_add(opp, "Schot op goal", "Linksvoor")
-        if sog2.button("Schot op goal midden", key="opp_sog_mid", use_container_width=True):
-            quick_add(opp, "Schot op goal", "Middenvoor")
-        if sog3.button("Schot op goal rechts", key="opp_sog_right", use_container_width=True):
-            quick_add(opp, "Schot op goal", "Rechtsvoor")
-
-        g1, g2, g3 = st.columns(3)
-        if g1.button("Goal links", key="opp_goal_left", use_container_width=True):
-            quick_add(opp, "Goal", "Linksvoor")
-        if g2.button("Goal midden", key="opp_goal_mid", use_container_width=True):
-            quick_add(opp, "Goal", "Middenvoor")
-        if g3.button("Goal rechts", key="opp_goal_right", use_container_width=True):
-            quick_add(opp, "Goal", "Rechtsvoor")
-
-        st.markdown("**Overig**")
-        o1, o2, o3, o4 = st.columns(4)
-        if o1.button("Strafcorner", key="opp_pc", use_container_width=True):
-            quick_add(opp, "Strafcorner")
-        if o2.button("Hoge balverovering", key="opp_highwin", use_container_width=True):
-            quick_add(opp, "Hoge balverovering")
-        if o3.button("Press succes", key="opp_press", use_container_width=True):
-            quick_add(opp, "Press succes")
-        if o4.button("Opbouw mislukt", key="opp_buildfail", use_container_width=True):
-            quick_add(opp, "Opbouw mislukt")
-
-        d1, d2, d3 = st.columns(3)
-        if d1.button("Turnover", key="opp_turnover", use_container_width=True):
-            quick_add(opp, "Turnover")
-        if d2.button("Turnover eigen helft", key="opp_turnown", use_container_width=True):
-            quick_add(opp, "Turnover eigen helft")
-        if d3.button("Counter tegen", key="opp_counter", use_container_width=True):
-            quick_add(opp, "Counter tegen na balverlies")
+with right:
+    render_team_tagging(opp, "opp", "#dc2626")
 
 st.divider()
 
