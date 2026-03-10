@@ -11,7 +11,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V6 Pro Fixed",
+    page_title="Hockey Coach Analyse Tool V6.1 Stable",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -1572,7 +1572,7 @@ def live_clock():
 # --------------------------------------------------
 inject_custom_css()
 
-st.title("🏑 Hockey Coach Analyse Tool V6 Pro Fixed")
+st.title("🏑 Hockey Coach Analyse Tool V6.1 Stable")
 st.caption("Professionele coachweergave met live tagging, KPI-dashboard, event feed en veldvisualisatie.")
 
 top1, top2, top3, top4 = st.columns([1.25, 1.25, 0.75, 1.0])
@@ -1974,58 +1974,82 @@ else:
                     st.rerun()
 
             st.markdown("### Event bewerken of verwijderen")
+
             selectable_ids = filtered_df["id"].tolist()
-            if selectable_ids:
-                selected_id = st.selectbox("Kies event-ID", selectable_ids, key="selected_event_id")
-                selected_row = filtered_df[filtered_df["id"] == selected_id].iloc[0]
 
-                with st.form("edit_event_form"):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        edit_quarter = st.selectbox(
-                            "Kwart",
-                            QUARTERS,
-                            index=QUARTERS.index(selected_row["quarter"]) if selected_row["quarter"] in QUARTERS else 0,
-                        )
-                        edit_team = st.selectbox(
-                            "Team",
-                            [team, opp],
-                            index=0 if selected_row["team"] == team else 1,
-                        )
-                        edit_event = st.selectbox(
-                            "Event",
-                            EVENT_OPTIONS,
-                            index=EVENT_OPTIONS.index(selected_row["event"]) if selected_row["event"] in EVENT_OPTIONS else 0,
-                        )
-                    with c2:
-                        edit_zone = st.selectbox(
-                            "Zone",
-                            ZONES,
-                            index=ZONES.index(selected_row["zone"]) if selected_row["zone"] in ZONES else 0,
-                        )
-                        edit_time = st.text_input("Tijd", value=str(selected_row["time"]))
-                        edit_notes = st.text_area("Notities", value=str(selected_row["notes"]))
+            if not selectable_ids:
+                st.info("Geen events beschikbaar binnen de huidige filters.")
+            else:
+                current_selected_id = st.session_state.get("selected_event_id")
 
-                    s1, s2 = st.columns(2)
-                    save_clicked = s1.form_submit_button("Opslaan", use_container_width=True)
-                    delete_clicked = s2.form_submit_button("Verwijderen", use_container_width=True)
+                if current_selected_id not in selectable_ids:
+                    current_selected_id = selectable_ids[0]
+                    st.session_state.selected_event_id = current_selected_id
 
-                    if save_clicked:
-                        update_event(
-                            selected_id,
-                            {
-                                "quarter": edit_quarter,
-                                "team": edit_team,
-                                "event": edit_event,
-                                "zone": edit_zone,
-                                "time": edit_time,
-                                "notes": edit_notes,
-                            },
-                        )
-                        st.success("Event bijgewerkt.")
-                        st.rerun()
+                selected_index = selectable_ids.index(current_selected_id)
 
-                    if delete_clicked:
-                        remove_event_by_id(selected_id)
-                        st.success("Event verwijderd.")
-                        st.rerun()
+                selected_id = st.selectbox(
+                    "Kies event-ID",
+                    selectable_ids,
+                    index=selected_index,
+                    key="selected_event_id",
+                )
+
+                selected_rows = filtered_df[filtered_df["id"] == selected_id]
+
+                if selected_rows.empty:
+                    st.warning("Het gekozen event bestaat niet meer binnen de huidige filterselectie.")
+                else:
+                    selected_row = selected_rows.iloc[0]
+
+                    with st.form("edit_event_form"):
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            edit_quarter = st.selectbox(
+                                "Kwart",
+                                QUARTERS,
+                                index=QUARTERS.index(selected_row["quarter"]) if selected_row["quarter"] in QUARTERS else 0,
+                            )
+                            edit_team = st.selectbox(
+                                "Team",
+                                [team, opp],
+                                index=0 if selected_row["team"] == team else 1,
+                            )
+                            edit_event = st.selectbox(
+                                "Event",
+                                EVENT_OPTIONS,
+                                index=EVENT_OPTIONS.index(selected_row["event"]) if selected_row["event"] in EVENT_OPTIONS else 0,
+                            )
+                        with c2:
+                            edit_zone = st.selectbox(
+                                "Zone",
+                                ZONES,
+                                index=ZONES.index(selected_row["zone"]) if selected_row["zone"] in ZONES else 0,
+                            )
+                            edit_time = st.text_input("Tijd", value=str(selected_row["time"]))
+                            edit_notes = st.text_area("Notities", value=str(selected_row["notes"]))
+
+                        s1, s2 = st.columns(2)
+                        save_clicked = s1.form_submit_button("Opslaan", use_container_width=True)
+                        delete_clicked = s2.form_submit_button("Verwijderen", use_container_width=True)
+
+                        if save_clicked:
+                            update_event(
+                                selected_id,
+                                {
+                                    "quarter": edit_quarter,
+                                    "team": edit_team,
+                                    "event": edit_event,
+                                    "zone": edit_zone,
+                                    "time": edit_time,
+                                    "notes": edit_notes,
+                                },
+                            )
+                            st.success("Event bijgewerkt.")
+                            st.rerun()
+
+                        if delete_clicked:
+                            remove_event_by_id(selected_id)
+                            st.session_state.selected_event_id = None
+                            st.success("Event verwijderd.")
+                            st.rerun()
