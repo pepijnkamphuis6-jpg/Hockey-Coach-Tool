@@ -13,7 +13,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V6.4 components",
+    page_title="Hockey Coach Analyse Tool",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -1334,8 +1334,8 @@ def live_clock():
 # --------------------------------------------------
 inject_custom_css()
 
-st.title("🏑 Hockey Coach Analyse Tool V6.4 components")
-st.caption("Veldvisualisatie draait nu via components.html() in plaats van markdown HTML.")
+st.title("🏑 Hockey Coach Analyse Tool ")
+
 
 top1, top2, top3, top4 = st.columns([1.25, 1.25, 0.75, 1.0])
 with top1:
