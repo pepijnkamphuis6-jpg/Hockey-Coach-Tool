@@ -182,7 +182,9 @@ def percent(numerator: int, denominator: int) -> float:
 
 
 def set_new_match_id() -> None:
-    st.session_state.match_id = f"wedstrijd-{uuid.uuid4().hex[:6]}"
+    new_id = f"wedstrijd-{uuid.uuid4().hex[:6]}"
+    st.session_state.match_id = new_id
+    st.session_state.ui_match_id = new_id
 
 
 
@@ -199,9 +201,14 @@ def next_quarter() -> None:
     try:
         idx = QUARTERS.index(st.session_state.quarter)
         if idx < len(QUARTERS) - 1:
-            st.session_state.quarter = QUARTERS[idx + 1]
+            next_value = QUARTERS[idx + 1]
+        else:
+            next_value = QUARTERS[-1]
     except ValueError:
-        st.session_state.quarter = "Q1"
+        next_value = "Q1"
+
+    st.session_state.quarter = next_value
+    st.session_state.ui_quarter = next_value
 
 
 
@@ -1441,38 +1448,101 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
 
 
 
+def sync_team_name_from_ui() -> None:
+    st.session_state.team_name = st.session_state.ui_team_name
+
+
+
+def sync_opponent_name_from_ui() -> None:
+    st.session_state.opponent_name = st.session_state.ui_opponent_name
+
+
+
+def sync_quarter_from_ui() -> None:
+    st.session_state.quarter = st.session_state.ui_quarter
+
+
+
+def sync_match_id_from_ui() -> None:
+    st.session_state.match_id = st.session_state.ui_match_id
+
+
+
+def start_timer() -> None:
+    if not st.session_state.timer_running:
+        st.session_state.start_time = time.time()
+        st.session_state.timer_running = True
+
+
+
+def stop_timer() -> None:
+    if st.session_state.timer_running:
+        st.session_state.elapsed_before_run = current_elapsed_seconds()
+        st.session_state.start_time = None
+        st.session_state.timer_running = False
+
+
+
+def reset_timer() -> None:
+    st.session_state.timer_running = False
+    st.session_state.start_time = None
+    st.session_state.elapsed_before_run = 0
+
+
+
+@st.fragment(run_every="1s" if st.session_state.timer_running else None)
+def render_live_clock_bar() -> None:
+    c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 1, 1])
+    c1.metric("Live klok", current_time_str())
+    c2.button("Start", use_container_width=True, on_click=start_timer)
+    c3.button("Stop", use_container_width=True, on_click=stop_timer)
+    c4.button("Reset klok", use_container_width=True, on_click=reset_timer)
+    c5.button("Volgend kwart", use_container_width=True, on_click=next_quarter)
+
+
+
 def render_setup_bar() -> None:
+    if "ui_team_name" not in st.session_state:
+        st.session_state.ui_team_name = st.session_state.team_name
+    if "ui_opponent_name" not in st.session_state:
+        st.session_state.ui_opponent_name = st.session_state.opponent_name
+    if "ui_quarter" not in st.session_state:
+        st.session_state.ui_quarter = st.session_state.quarter
+    if "ui_match_id" not in st.session_state:
+        st.session_state.ui_match_id = st.session_state.match_id
+
     top1, top2, top3, top4 = st.columns([1.2, 1.2, 0.7, 1.0])
     with top1:
-        st.text_input("Naam eigen team", key="team_name")
+        st.text_input(
+            "Naam eigen team",
+            key="ui_team_name",
+            on_change=sync_team_name_from_ui,
+        )
     with top2:
-        st.text_input("Naam tegenstander", key="opponent_name")
+        st.text_input(
+            "Naam tegenstander",
+            key="ui_opponent_name",
+            on_change=sync_opponent_name_from_ui,
+        )
     with top3:
-        st.selectbox("Kwart", QUARTERS, key="quarter")
+        st.selectbox(
+            "Kwart",
+            QUARTERS,
+            key="ui_quarter",
+            on_change=sync_quarter_from_ui,
+        )
     with top4:
-        st.text_input("Wedstrijd-ID", key="match_id")
+        st.text_input(
+            "Wedstrijd-ID",
+            key="ui_match_id",
+            on_change=sync_match_id_from_ui,
+        )
 
-    b1, b2, b3, b4, b5 = st.columns(5)
-    if b1.button("Start", use_container_width=True):
-        if not st.session_state.timer_running:
-            st.session_state.start_time = time.time()
-            st.session_state.timer_running = True
-            st.rerun()
-    if b2.button("Stop", use_container_width=True):
-        if st.session_state.timer_running:
-            st.session_state.elapsed_before_run = current_elapsed_seconds()
-            st.session_state.start_time = None
-            st.session_state.timer_running = False
-            st.rerun()
-    if b3.button("Volgend kwart", use_container_width=True):
-        next_quarter()
-        st.rerun()
-    if b4.button("Nieuwe ID", use_container_width=True):
-        set_new_match_id()
-        st.rerun()
-    if b5.button("Sync", use_container_width=True):
-        sync_from_cloud()
-        st.rerun()
+    b1, b2 = st.columns(2)
+    b1.button("Nieuwe ID", use_container_width=True, on_click=set_new_match_id)
+    b2.button("Sync", use_container_width=True, on_click=sync_from_cloud)
+
+    render_live_clock_bar()
 
 
 
