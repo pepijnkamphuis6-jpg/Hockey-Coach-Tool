@@ -133,7 +133,9 @@ def build_df() -> pd.DataFrame:
     return df[cols]
 
 
-def count_events(df: pd.DataFrame, team: str, event: str, quarter: str | None = None) -> int:
+def count_events(
+    df: pd.DataFrame, team: str, event: str, quarter: str | None = None
+) -> int:
     if df.empty:
         return 0
     mask = (df["team"] == team) & (df["event"] == event)
@@ -153,7 +155,8 @@ def set_new_match_id() -> None:
 def recalc_score() -> None:
     df = build_df()
     st.session_state.score_team = count_events(df, st.session_state.team_name, "Goal")
-    st.session_state.score_opponent = count_events(df, st.session_state.opponent_name, "Goal")
+        df, st.session_state.opponent_name, "Goal"
+    )
 
 
 def next_quarter() -> None:
@@ -203,8 +206,12 @@ def build_quarter_report_df(df: pd.DataFrame) -> pd.DataFrame:
 
         team_entries = count_events(df, team, "Cirkelentry", q)
         opp_entries = count_events(df, opp, "Cirkelentry", q)
-        team_shots = count_events(df, team, "Schot", q) + count_events(df, team, "Schot op goal", q)
-        opp_shots = count_events(df, opp, "Schot", q) + count_events(df, opp, "Schot op goal", q)
+        team_shots = count_events(df, team, "Schot", q) + count_events(
+            df, team, "Schot op goal", q
+        )
+        opp_shots = count_events(df, opp, "Schot", q) + count_events(
+            df, opp, "Schot op goal", q
+        )
         team_goals = count_events(df, team, "Goal", q)
         opp_goals = count_events(df, opp, "Goal", q)
 
@@ -234,8 +241,12 @@ def build_kpi_summary(df: pd.DataFrame) -> dict:
     team_entries = count_events(df, team, "Cirkelentry")
     opp_entries = count_events(df, opp, "Cirkelentry")
 
-    team_shots = count_events(df, team, "Schot") + count_events(df, team, "Schot op goal")
-    opp_shots = count_events(df, opp, "Schot") + count_events(df, opp, "Schot op goal")
+    team_shots = count_events(df, team, "Schot") + count_events(
+        df, team, "Schot op goal"
+    )
+    opp_shots = count_events(df, opp, "Schot") + count_events(
+        df, opp, "Schot op goal"
+    )
 
     team_goals = count_events(df, team, "Goal")
     opp_goals = count_events(df, opp, "Goal")
@@ -278,8 +289,12 @@ def build_kpi_summary(df: pd.DataFrame) -> dict:
         "opp_shot_to_goal_pct": percent(opp_goals, opp_shots),
         "team_highwin_to_entry_pct": percent(team_entries, team_high_wins),
         "opp_highwin_to_entry_pct": percent(opp_entries, opp_high_wins),
-        "team_turnover_to_counter_pct": percent(team_counters_against, team_turnovers_own),
-        "opp_turnover_to_counter_pct": percent(opp_counters_against, opp_turnovers_own),
+        "team_turnover_to_counter_pct": percent(
+            team_counters_against, team_turnovers_own
+        ),
+        "opp_turnover_to_counter_pct": percent(
+            opp_counters_against, opp_turnovers_own
+        ),
     }
 
 
@@ -324,19 +339,28 @@ def get_insight_cards(df: pd.DataFrame) -> list[dict]:
         sterkte_sub = f"{team} heeft {kpi['team_high_wins']} hoge balveroveringen."
     elif kpi["team_entry_to_shot_pct"] >= 50 and kpi["team_entries"] >= 4:
         sterkte_value = "Goede cirkelopvolging"
-        sterkte_sub = f"{kpi['team_entry_to_shot_pct']:.0f}% van de entries leidt tot een schot."
+        sterkte_sub = (
+            f"{kpi['team_entry_to_shot_pct']:.0f}% van de entries leidt tot een schot."
+        )
     elif kpi["team_shot_to_goal_pct"] >= 30 and kpi["team_shots"] >= 3:
         sterkte_value = "Effectieve afronding"
-        sterkte_sub = f"{kpi['team_shot_to_goal_pct']:.0f}% van de schoten wordt een goal."
+        sterkte_sub = (
+            f"{kpi['team_shot_to_goal_pct']:.0f}% van de schoten wordt een goal."
+        )
 
     risico_value = "Geen dominant risico"
     risico_sub = "Wedstrijdprofiel oogt in balans."
     if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
         risico_value = "Balverlies = counter tegen"
-        risico_sub = f"{kpi['team_turnover_to_counter_pct']:.0f}% van turnovers eigen helft leidt tot gevaar."
+        risico_sub = (
+            f"{kpi['team_turnover_to_counter_pct']:.0f}% van turnovers eigen helft "
+            f"leidt tot gevaar."
+        )
     elif kpi["opp_entry_to_shot_pct"] > 50 and kpi["opp_entries"] >= 3:
         risico_value = "Tegenstander komt te makkelijk tot schot"
-        risico_sub = f"{opp} zet {kpi['opp_entry_to_shot_pct']:.0f}% van entries om in schoten."
+        risico_sub = (
+            f"{opp} zet {kpi['opp_entry_to_shot_pct']:.0f}% van entries om in schoten."
+        )
     elif kpi["team_build_fail"] >= 3:
         risico_value = "Opbouw onder druk kwetsbaar"
         risico_sub = f"{kpi['team_build_fail']} mislukte opbouwmomenten."
@@ -354,7 +378,9 @@ def get_insight_cards(df: pd.DataFrame) -> list[dict]:
         actie_sub = "Na entry eerder schieten of de beslissende pass geven."
     elif kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
         actie_value = "Veiliger opbouwen"
-        actie_sub = "Minder risico in eigen helft en restverdediging sneller neerzetten."
+        actie_sub = (
+            "Minder risico in eigen helft en restverdediging sneller neerzetten."
+        )
     elif kpi["opp_entry_to_shot_pct"] > 50:
         actie_value = "Eerder druk op bal"
         actie_sub = "Tegenstander bij entry directer storen."
@@ -407,7 +433,9 @@ def build_report_sections(df: pd.DataFrame) -> dict:
         f"Dominante entryzone: {dominant_zone_text(df, team, event='Cirkelentry')}.",
     ]
     if kpi["team_entry_to_shot_pct"] < 40 and kpi["team_entries"] > 0:
-        aanval.append("De ploeg komt in de cirkel, maar zet dat te weinig om in directe doelpogingen.")
+        aanval.append(
+            "De ploeg komt in de cirkel, maar zet dat te weinig om in directe doelpogingen."
+        )
     if kpi["team_shot_to_goal_pct"] < 20 and kpi["team_shots"] > 0:
         aanval.append("De afronding is nog onvoldoende efficiënt.")
 
@@ -418,14 +446,18 @@ def build_report_sections(df: pd.DataFrame) -> dict:
     if kpi["team_high_wins"] >= 4:
         press.append("De press levert regelmatig balwinst op in kansrijke zones.")
     if 0 < kpi["team_high_wins"] and kpi["team_highwin_to_entry_pct"] < 60:
-        press.append("Na hoge balverovering kan de vervolgactie richting cirkel sneller en directer.")
+        press.append(
+            "Na hoge balverovering kan de vervolgactie richting cirkel sneller en directer."
+        )
 
     omschakeling = [
         f"Turnovers eigen helft: {kpi['team_turnovers_own']} • counters tegen: {kpi['team_counters_against']}.",
         f"Turnover eigen helft → counter tegen: {kpi['team_turnover_to_counter_pct']:.0f}%.",
     ]
     if kpi["team_turnovers_own"] >= 3:
-        omschakeling.append("Balverlies in eigen helft is een terugkerend risico in deze wedstrijd.")
+        omschakeling.append(
+            "Balverlies in eigen helft is een terugkerend risico in deze wedstrijd."
+        )
     if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
         omschakeling.append("Te veel balverlies leidt direct tot counters tegen.")
 
@@ -434,17 +466,25 @@ def build_report_sections(df: pd.DataFrame) -> dict:
         f"Entries tegen → schot: {kpi['opp_entry_to_shot_pct']:.0f}% • schoten tegen → goal: {kpi['opp_shot_to_goal_pct']:.0f}%.",
     ]
     if kpi["opp_entry_to_shot_pct"] > 50 and kpi["opp_entries"] > 0:
-        verdediging.append("De tegenstander mag te makkelijk van entry naar schot komen.")
+        verdediging.append(
+            "De tegenstander mag te makkelijk van entry naar schot komen."
+        )
     if kpi["opp_shot_to_goal_pct"] > 30 and kpi["opp_shots"] > 0:
         verdediging.append("De kwaliteit van de kansen tegen lijkt te hoog.")
 
     actiepunt = []
     if kpi["team_entry_to_shot_pct"] < 40 and kpi["team_entries"] > 0:
-        actiepunt.append("Focus op sneller handelen in de cirkel: eerste actie richting goal.")
+        actiepunt.append(
+            "Focus op sneller handelen in de cirkel: eerste actie richting goal."
+        )
     if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
-        actiepunt.append("Veiliger opbouwen in eigen helft en restverdediging eerder organiseren.")
+        actiepunt.append(
+            "Veiliger opbouwen in eigen helft en restverdediging eerder organiseren."
+        )
     if kpi["opp_entry_to_shot_pct"] > 50:
-        actiepunt.append("Bij entries van de tegenstander eerder druk zetten op de bal.")
+        actiepunt.append(
+            "Bij entries van de tegenstander eerder druk zetten op de bal."
+        )
     if kpi["team_high_wins"] >= 4:
         actiepunt.append("Press behouden als kracht, maar na balwinst directer doorpakken.")
     if not actiepunt:
@@ -627,7 +667,9 @@ def remove_event_by_id(event_id: str) -> None:
         delete_event_cloud(event_id)
         sync_from_cloud()
     else:
-        st.session_state.events = [e for e in st.session_state.events if e["id"] != event_id]
+        st.session_state.events = [
+            e for e in st.session_state.events if e["id"] != event_id
+        ]
         refresh_derived_state()
 
 
@@ -647,7 +689,9 @@ def update_event_local(event_id: str, updated_row: dict) -> None:
 def update_event(event_id: str, updated_row: dict) -> None:
     update_event_local(event_id, updated_row)
     if cloud_enabled():
-        event_row = next((e for e in st.session_state.events if e["id"] == event_id), None)
+        event_row = next(
+            (e for e in st.session_state.events if e["id"] == event_id), None
+        )
         if event_row:
             update_event_in_cloud(event_row)
 
@@ -688,23 +732,31 @@ def generate_tactical_patterns(df: pd.DataFrame) -> list[str]:
 
     team_build_fail = len(df[(df["team"] == team) & (df["event"] == "Opbouw mislukt")])
     if team_build_fail >= 3:
-        patterns.append(f"{team} had {team_build_fail} mislukte opbouwmomenten onder druk.")
+        patterns.append(
+            f"{team} had {team_build_fail} mislukte opbouwmomenten onder druk."
+        )
 
     team_press_success = len(df[(df["team"] == team) & (df["event"] == "Press succes")])
     if team_press_success >= 3:
-        patterns.append(f"De press van {team} leverde {team_press_success} succesvolle momenten op.")
+        patterns.append(
+            f"De press van {team} leverde {team_press_success} succesvolle momenten op."
+        )
 
     team_circle_def_errors = len(
         df[(df["team"] == team) & (df["event"] == "Cirkelverdediging fout")]
     )
     if team_circle_def_errors >= 2:
-        patterns.append(f"{team} maakte {team_circle_def_errors} fouten in de cirkelverdediging.")
+        patterns.append(
+            f"{team} maakte {team_circle_def_errors} fouten in de cirkelverdediging."
+        )
 
     team_counters_against = len(
         df[(df["team"] == team) & (df["event"] == "Counter tegen na balverlies")]
     )
     if team_counters_against >= 3:
-        patterns.append(f"{team} kreeg vaak counters tegen na balverlies ({team_counters_against}x).")
+        patterns.append(
+            f"{team} kreeg vaak counters tegen na balverlies ({team_counters_against}x)."
+        )
 
     return patterns
 
@@ -1005,7 +1057,10 @@ def render_match_header() -> None:
             st.markdown(f"## {st.session_state.team_name}")
             st.caption("Eigen team")
         with c2:
-            st.metric("Wedstrijdscore", f"{st.session_state.score_team} - {st.session_state.score_opponent}")
+            st.metric(
+                "Wedstrijdscore",
+                f"{st.session_state.score_team} - {st.session_state.score_opponent}",
+            )
         with c3:
             st.markdown(f"## {st.session_state.opponent_name}")
             st.caption("Tegenstander")
@@ -1037,8 +1092,16 @@ def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
 
     for _, row in ordered.iterrows():
         team_color = TEAM_BLUE if row["team"] == st.session_state.team_name else OPP_RED
-        zone_html = f'<span class="pill pill-gray">{row["zone"]}</span>' if str(row["zone"]).strip() else ""
-        notes_html = f'<span class="pill pill-gray">{row["notes"]}</span>' if str(row["notes"]).strip() else ""
+        zone_html = (
+            f'<span class="pill pill-gray">{row["zone"]}</span>'
+            if str(row["zone"]).strip()
+            else ""
+        )
+        notes_html = (
+            f'<span class="pill pill-gray">{row["notes"]}</span>'
+            if str(row["notes"]).strip()
+            else ""
+        )
         event_class = get_event_pill_class(str(row["event"]))
 
         html = dedent(
@@ -1125,11 +1188,17 @@ def render_team_tagging(team_name: str, prefix: str, header_color: str) -> None:
         quick_add(team_name, "Schot", "Rechtsvoor")
 
     sog1, sog2, sog3 = st.columns(3)
-    if sog1.button("Schot op goal links", key=f"{prefix}_sog_left", use_container_width=True):
+    if sog1.button(
+        "Schot op goal links", key=f"{prefix}_sog_left", use_container_width=True
+    ):
         quick_add(team_name, "Schot op goal", "Linksvoor")
-    if sog2.button("Schot op goal midden", key=f"{prefix}_sog_mid", use_container_width=True):
+    if sog2.button(
+        "Schot op goal midden", key=f"{prefix}_sog_mid", use_container_width=True
+    ):
         quick_add(team_name, "Schot op goal", "Middenvoor")
-    if sog3.button("Schot op goal rechts", key=f"{prefix}_sog_right", use_container_width=True):
+    if sog3.button(
+        "Schot op goal rechts", key=f"{prefix}_sog_right", use_container_width=True
+    ):
         quick_add(team_name, "Schot op goal", "Rechtsvoor")
 
     g1, g2, g3 = st.columns(3)
@@ -1160,7 +1229,9 @@ def render_team_tagging(team_name: str, prefix: str, header_color: str) -> None:
         quick_add(team_name, "Counter tegen na balverlies")
 
 
-def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: str, selected_event: str) -> None:
+def render_field_view(
+    df: pd.DataFrame, selected_team: str, selected_quarter: str, selected_event: str
+) -> None:
     if df.empty:
         st.info("Nog geen data voor veldvisualisatie.")
         return
@@ -1210,58 +1281,54 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
             offset = offsets[zone][i % len(offsets[zone])]
             base_y = event_y_map.get(selected_event, "60%")
             overlay_html.append(
-                dedent(
-                    f"""
-                    <div class="overlay-dot {dot_class}"
-                         style="left:{zone_x_map[zone]}; top:calc({base_y} + {offset}px); transform:translate(-50%, -50%);">
-                    </div>
-                    """
-                ).strip()
+                f'<div class="overlay-dot {dot_class}" '
+                f'style="left:{zone_x_map[zone]}; top:calc({base_y} + {offset}px); '
+                f'transform:translate(-50%, -50%);"></div>'
             )
 
     dominant_text = "geen data"
     if total > 0:
         dominant_text = max(zone_counts.items(), key=lambda x: x[1])[0].lower()
 
-    html = dedent(
-        f"""
-        <div class="field-wrap">
-            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
-                <div style="font-size:20px; font-weight:900; color:{TEXT_MAIN};">
-                    Veldvisualisatie • {selected_event} • {selected_team} • {selected_quarter}
-                </div>
-                <div style="font-size:13px; color:{TEXT_SUB};">Zones zijn gebaseerd op links / midden / rechts in de voorste zone.</div>
-            </div>
-
-            <div class="half-field">
-                <div class="zone-panel zone-left"></div>
-                <div class="zone-panel zone-mid"></div>
-                <div class="zone-panel zone-right"></div>
-
-                <div class="zone-label zl">Linksvoor</div>
-                <div class="zone-label zm">Middenvoor</div>
-                <div class="zone-label zr">Rechtsvoor</div>
-
-                <div class="field-line back-line"></div>
-                <div class="field-line circle-line"></div>
-                <div class="spot-line"></div>
-
-                {''.join(overlay_html)}
-            </div>
-
-            <div class="legend-row">
-                <div class="legend-item"><span class="legend-dot" style="background:#2563eb;"></span> Cirkelentry</div>
-                <div class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span> Schot</div>
-                <div class="legend-item"><span class="legend-dot" style="background:#7c3aed;"></span> Schot op goal</div>
-                <div class="legend-item"><span class="legend-dot" style="background:#dc2626;"></span> Goal</div>
-            </div>
-
-            <div style="margin-top:14px; color:{TEXT_SUB}; font-size:14px;">
-                Dominante zone: <strong>{dominant_text}</strong> • totaal geselecteerde events: <strong>{total}</strong>
-            </div>
+    html = f"""
+<div class="field-wrap">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
+        <div style="font-size:20px; font-weight:900; color:{TEXT_MAIN};">
+            Veldvisualisatie • {selected_event} • {selected_team} • {selected_quarter}
         </div>
-        """
-    ).strip()
+        <div style="font-size:13px; color:{TEXT_SUB};">
+            Zones zijn gebaseerd op links / midden / rechts in de voorste zone.
+        </div>
+    </div>
+
+    <div class="half-field">
+        <div class="zone-panel zone-left"></div>
+        <div class="zone-panel zone-mid"></div>
+        <div class="zone-panel zone-right"></div>
+
+        <div class="zone-label zl">Linksvoor</div>
+        <div class="zone-label zm">Middenvoor</div>
+        <div class="zone-label zr">Rechtsvoor</div>
+
+        <div class="field-line back-line"></div>
+        <div class="field-line circle-line"></div>
+        <div class="spot-line"></div>
+
+        {''.join(overlay_html)}
+    </div>
+
+    <div class="legend-row">
+        <div class="legend-item"><span class="legend-dot" style="background:#2563eb;"></span> Cirkelentry</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span> Schot</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#7c3aed;"></span> Schot op goal</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#dc2626;"></span> Goal</div>
+    </div>
+
+    <div style="margin-top:14px; color:{TEXT_SUB}; font-size:14px;">
+        Dominante zone: <strong>{dominant_text}</strong> • totaal geselecteerde events: <strong>{total}</strong>
+    </div>
+</div>
+""".strip()
 
     st.markdown(html, unsafe_allow_html=True)
 
@@ -1348,7 +1415,9 @@ def live_clock():
 inject_custom_css()
 
 st.title("🏑 Hockey Coach Analyse Tool V6.3 HTML-safe")
-st.caption("Veilige versie zonder zichtbare raw HTML in header, cards en veldvisualisatie.")
+st.caption(
+    "Veilige versie zonder zichtbare raw HTML in header, cards en veldvisualisatie."
+)
 
 top1, top2, top3, top4 = st.columns([1.25, 1.25, 0.75, 1.0])
 with top1:
@@ -1372,9 +1441,13 @@ with sync3:
 
 if cloud_enabled():
     last_sync = st.session_state.last_sync_time or "nog niet"
-    st.success(f"Cloud sync actief • laatste sync: {last_sync} • events: {st.session_state.last_sync_count}")
+    st.success(
+        f"Cloud sync actief • laatste sync: {last_sync} • events: {st.session_state.last_sync_count}"
+    )
 else:
-    st.warning("Cloud sync uit. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
+    st.warning(
+        "Cloud sync uit. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets."
+    )
 
 video = st.file_uploader("Upload wedstrijdvideo", type=["mp4", "mov", "avi", "m4v"])
 if video and st.session_state.ui_mode != "Wedstrijdmodus iPad":
@@ -1423,7 +1496,11 @@ if st.session_state.ui_mode == "Wedstrijdmodus iPad":
         render_team_tagging(opp, "opp", OPP_RED)
 
     st.subheader("📝 Laatste analyse")
-    st.text_area("Coachrapport", value=st.session_state.auto_notes or "Nog geen data.", height=280)
+    st.text_area(
+        "Coachrapport",
+        value=st.session_state.auto_notes or "Nog geen data.",
+        height=280,
+    )
 
 # --------------------------------------------------
 # Normal mode
@@ -1546,7 +1623,9 @@ else:
                 render_info_card(card["title"], card["value"], card["subtitle"], "green")
             with ic2:
                 card = insight_cards[1]
-                render_info_card(card["title"], card["value"], card["subtitle"], "orange")
+                render_info_card(
+                    card["title"], card["value"], card["subtitle"], "orange"
+                )
             with ic3:
                 card = insight_cards[2]
                 render_info_card(card["title"], card["value"], card["subtitle"], "blue")
@@ -1608,7 +1687,9 @@ else:
             with c1:
                 map_team = st.selectbox("Kies team", [team, opp], key="field_team")
             with c2:
-                map_quarter = st.selectbox("Kies kwart", ["Alles"] + QUARTERS, key="field_quarter")
+                map_quarter = st.selectbox(
+                    "Kies kwart", ["Alles"] + QUARTERS, key="field_quarter"
+                )
             with c3:
                 map_event = st.selectbox(
                     "Kies eventtype",
@@ -1717,7 +1798,9 @@ else:
             st.info("Nog geen events.")
         else:
             filter_team = st.selectbox("Filter team", ["Alles", team, opp], key="log_team")
-            filter_quarter = st.selectbox("Filter kwart", ["Alles"] + QUARTERS, key="log_quarter")
+            filter_quarter = st.selectbox(
+                "Filter kwart", ["Alles"] + QUARTERS, key="log_quarter"
+            )
             filter_event = st.selectbox(
                 "Filter event",
                 ["Alles"] + sorted(df["event"].dropna().unique().tolist()),
@@ -1782,7 +1865,9 @@ else:
                 selected_rows = filtered_df[filtered_df["id"] == selected_id]
 
                 if selected_rows.empty:
-                    st.warning("Het gekozen event bestaat niet meer binnen de huidige filterselectie.")
+                    st.warning(
+                        "Het gekozen event bestaat niet meer binnen de huidige filterselectie."
+                    )
                 else:
                     selected_row = selected_rows.iloc[0]
 
@@ -1792,7 +1877,9 @@ else:
                             edit_quarter = st.selectbox(
                                 "Kwart",
                                 QUARTERS,
-                                index=QUARTERS.index(selected_row["quarter"]) if selected_row["quarter"] in QUARTERS else 0,
+                                index=QUARTERS.index(selected_row["quarter"])
+                                if selected_row["quarter"] in QUARTERS
+                                else 0,
                             )
                             edit_team = st.selectbox(
                                 "Team",
@@ -1802,20 +1889,30 @@ else:
                             edit_event = st.selectbox(
                                 "Event",
                                 EVENT_OPTIONS,
-                                index=EVENT_OPTIONS.index(selected_row["event"]) if selected_row["event"] in EVENT_OPTIONS else 0,
+                                index=EVENT_OPTIONS.index(selected_row["event"])
+                                if selected_row["event"] in EVENT_OPTIONS
+                                else 0,
                             )
                         with c2:
                             edit_zone = st.selectbox(
                                 "Zone",
                                 ZONES,
-                                index=ZONES.index(selected_row["zone"]) if selected_row["zone"] in ZONES else 0,
+                                index=ZONES.index(selected_row["zone"])
+                                if selected_row["zone"] in ZONES
+                                else 0,
                             )
                             edit_time = st.text_input("Tijd", value=str(selected_row["time"]))
-                            edit_notes = st.text_area("Notities", value=str(selected_row["notes"]))
+                            edit_notes = st.text_area(
+                                "Notities", value=str(selected_row["notes"])
+                            )
 
                         s1, s2 = st.columns(2)
-                        save_clicked = s1.form_submit_button("Opslaan", use_container_width=True)
-                        delete_clicked = s2.form_submit_button("Verwijderen", use_container_width=True)
+                        save_clicked = s1.form_submit_button(
+                            "Opslaan", use_container_width=True
+                        )
+                        delete_clicked = s2.form_submit_button(
+                            "Verwijderen", use_container_width=True
+                        )
 
                         if save_clicked:
                             update_event(
