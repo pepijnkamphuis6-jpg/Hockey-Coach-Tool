@@ -11,7 +11,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V6.1 Stable",
+    page_title="Hockey Coach Analyse Tool V6.2 Safe",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -67,10 +67,9 @@ OPP_RED = "#dc2626"
 SUCCESS_GREEN = "#16a34a"
 WARNING_ORANGE = "#ea580c"
 CARD_BG = "#ffffff"
-CARD_BORDER = "#e2e8f0"
+CARD_BORDER = "#dbe2ea"
 TEXT_MAIN = "#0f172a"
 TEXT_SUB = "#475569"
-
 
 # --------------------------------------------------
 # Helpers
@@ -755,11 +754,6 @@ def inject_custom_css() -> None:
             max-width: 1500px;
         }}
 
-        h1, h2, h3 {{
-            color: {TEXT_MAIN};
-            letter-spacing: -0.02em;
-        }}
-
         div.stButton > button {{
             border-radius: 14px;
             border: 1px solid #dbeafe;
@@ -767,229 +761,67 @@ def inject_custom_css() -> None:
             min-height: 48px;
         }}
 
-        div[data-testid="stMetricValue"] {{
-            font-size: 30px;
-            color: {TEXT_MAIN};
-        }}
-
-        div[data-testid="stMetricLabel"] {{
-            color: {TEXT_SUB};
-            font-weight: 600;
-        }}
-
-        .match-header {{
-            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
-            border-radius: 28px;
-            padding: 24px 28px;
-            color: white;
-            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
-            margin-bottom: 18px;
-        }}
-
-        .match-grid {{
-            display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            gap: 20px;
-            align-items: center;
-        }}
-
-        .team-name {{
-            font-size: 30px;
-            font-weight: 800;
-            line-height: 1.1;
-        }}
-
-        .team-sub {{
-            font-size: 14px;
-            opacity: 0.82;
-            margin-top: 4px;
-        }}
-
-        .score-box {{
-            text-align: center;
-            padding: 10px 24px;
-            border-radius: 22px;
-            background: rgba(255,255,255,0.10);
-            border: 1px solid rgba(255,255,255,0.16);
-            min-width: 230px;
-        }}
-
-        .score-main {{
-            font-size: 54px;
-            font-weight: 900;
-            line-height: 1;
-        }}
-
-        .score-sub {{
-            font-size: 14px;
-            opacity: 0.86;
-            margin-top: 8px;
-        }}
-
-        .status-row {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 18px;
-        }}
-
-        .status-pill {{
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.12);
-            border: 1px solid rgba(255,255,255,0.16);
-            font-size: 13px;
-            font-weight: 700;
-        }}
-
-        .kpi-card {{
+        .safe-card {{
             background: {CARD_BG};
             border: 1px solid {CARD_BORDER};
             border-radius: 22px;
             padding: 18px;
             box-shadow: 0 10px 28px rgba(15,23,42,0.05);
-            min-height: 138px;
+            min-height: 140px;
             height: 100%;
         }}
 
-        .kpi-label {{
+        .safe-card-title {{
             font-size: 13px;
             color: {TEXT_SUB};
-            font-weight: 700;
-            margin-bottom: 8px;
+            font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.04em;
+            margin-bottom: 10px;
         }}
 
-        .kpi-value {{
+        .safe-card-value {{
             font-size: 34px;
             font-weight: 900;
             color: {TEXT_MAIN};
             line-height: 1.05;
+            margin-bottom: 10px;
         }}
 
-        .kpi-sub {{
-            margin-top: 8px;
+        .safe-card-sub {{
             color: {TEXT_SUB};
             font-size: 14px;
-            line-height: 1.35;
+            line-height: 1.4;
         }}
 
-        .accent-top-blue {{
+        .accent-blue {{
             border-top: 5px solid {TEAM_BLUE};
         }}
 
-        .accent-top-red {{
+        .accent-red {{
             border-top: 5px solid {OPP_RED};
         }}
 
-        .accent-top-green {{
+        .accent-green {{
             border-top: 5px solid {SUCCESS_GREEN};
         }}
 
-        .accent-top-orange {{
+        .accent-orange {{
             border-top: 5px solid {WARNING_ORANGE};
         }}
 
-        .insight-card {{
+        .mini-feed {{
             background: {CARD_BG};
             border: 1px solid {CARD_BORDER};
-            border-radius: 22px;
-            padding: 18px;
-            box-shadow: 0 10px 28px rgba(15,23,42,0.05);
-            min-height: 170px;
-            height: 100%;
-        }}
-
-        .insight-accent {{
-            height: 6px;
-            border-radius: 999px;
-            margin-bottom: 14px;
-        }}
-
-        .insight-title {{
-            font-size: 13px;
-            font-weight: 800;
-            color: {TEXT_SUB};
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+            border-radius: 18px;
+            padding: 12px 14px;
             margin-bottom: 10px;
-        }}
-
-        .insight-value {{
-            font-size: 25px;
-            line-height: 1.15;
-            font-weight: 900;
-            color: {TEXT_MAIN};
-            margin-bottom: 10px;
-        }}
-
-        .insight-sub {{
-            font-size: 14px;
-            line-height: 1.45;
-            color: {TEXT_SUB};
-        }}
-
-        .section-card {{
-            background: {CARD_BG};
-            border: 1px solid {CARD_BORDER};
-            border-radius: 22px;
-            padding: 18px 18px 12px 18px;
-            box-shadow: 0 10px 28px rgba(15,23,42,0.05);
-            height: 100%;
-        }}
-
-        .section-title {{
-            font-size: 15px;
-            font-weight: 900;
-            color: {TEXT_MAIN};
-            margin-bottom: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }}
-
-        .section-list {{
-            margin: 0;
-            padding-left: 18px;
-            color: {TEXT_SUB};
-            line-height: 1.5;
-            font-size: 14px;
-        }}
-
-        .feed-card {{
-            background: {CARD_BG};
-            border: 1px solid {CARD_BORDER};
-            border-radius: 20px;
-            padding: 14px 16px;
             box-shadow: 0 8px 22px rgba(15,23,42,0.04);
-            margin-bottom: 10px;
         }}
 
-        .feed-top {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 8px;
-        }}
-
-        .feed-team {{
-            font-size: 15px;
-            font-weight: 800;
-        }}
-
-        .feed-time {{
-            font-size: 13px;
-            color: {TEXT_SUB};
-            font-weight: 700;
-        }}
-
-        .badge {{
-            display: inline-block;
-            padding: 5px 10px;
+        .pill {{
+            display:inline-block;
+            padding: 6px 10px;
             border-radius: 999px;
             font-size: 12px;
             font-weight: 800;
@@ -997,24 +829,24 @@ def inject_custom_css() -> None:
             margin-top: 6px;
         }}
 
-        .badge-blue {{
-            background: #dbeafe;
-            color: #1d4ed8;
+        .pill-blue {{
+            background:#dbeafe;
+            color:#1d4ed8;
         }}
 
-        .badge-red {{
-            background: #fee2e2;
-            color: #b91c1c;
+        .pill-red {{
+            background:#fee2e2;
+            color:#b91c1c;
         }}
 
-        .badge-gray {{
-            background: #e2e8f0;
-            color: #334155;
+        .pill-green {{
+            background:#dcfce7;
+            color:#15803d;
         }}
 
-        .badge-green {{
-            background: #dcfce7;
-            color: #15803d;
+        .pill-gray {{
+            background:#e2e8f0;
+            color:#334155;
         }}
 
         .field-wrap {{
@@ -1028,141 +860,134 @@ def inject_custom_css() -> None:
         .half-field {{
             position: relative;
             width: 100%;
-            min-height: 540px;
-            border-radius: 26px;
+            min-height: 520px;
+            border-radius: 24px;
             overflow: hidden;
             background: linear-gradient(180deg, #bbf7d0 0%, #86efac 100%);
             border: 4px solid #166534;
         }}
 
+        .zone-panel {{
+            position:absolute;
+            bottom:4%;
+            height:48%;
+            opacity:0.18;
+            border-top:2px dashed rgba(255,255,255,0.72);
+        }}
+
+        .zone-left {{ left:6%; width:29.33%; background:#60a5fa; }}
+        .zone-mid {{ left:35.33%; width:29.33%; background:#facc15; }}
+        .zone-right {{ left:64.66%; width:29.33%; background:#fb7185; }}
+
+        .zone-label {{
+            position:absolute;
+            bottom:54%;
+            font-size:13px;
+            font-weight:800;
+            color:#14532d;
+            background:rgba(255,255,255,0.82);
+            padding:6px 10px;
+            border-radius:999px;
+        }}
+
+        .zl {{ left:12%; }}
+        .zm {{ left:43%; }}
+        .zr {{ left:74%; }}
+
         .field-line {{
-            position: absolute;
-            left: 6%;
-            right: 6%;
-            border-color: rgba(255,255,255,0.95);
+            position:absolute;
+            left:6%;
+            right:6%;
+            border-color:rgba(255,255,255,0.95);
         }}
 
         .back-line {{
-            bottom: 4%;
-            border-top: 4px solid rgba(255,255,255,0.95);
+            bottom:4%;
+            border-top:4px solid rgba(255,255,255,0.95);
         }}
 
         .circle-line {{
-            bottom: 4%;
-            left: 18%;
-            right: 18%;
-            height: 34%;
-            border: 4px solid rgba(255,255,255,0.95);
-            border-bottom: none;
-            border-top-left-radius: 500px;
-            border-top-right-radius: 500px;
+            bottom:4%;
+            left:18%;
+            right:18%;
+            height:34%;
+            border:4px solid rgba(255,255,255,0.95);
+            border-bottom:none;
+            border-top-left-radius:500px;
+            border-top-right-radius:500px;
         }}
 
         .spot-line {{
-            position: absolute;
-            width: 12px;
-            height: 12px;
-            border-radius: 999px;
-            background: rgba(255,255,255,0.95);
-            left: 50%;
-            transform: translateX(-50%);
-            bottom: 24%;
+            position:absolute;
+            width:12px;
+            height:12px;
+            border-radius:999px;
+            background:rgba(255,255,255,0.95);
+            left:50%;
+            transform:translateX(-50%);
+            bottom:24%;
         }}
-
-        .zone-panel {{
-            position: absolute;
-            bottom: 4%;
-            height: 48%;
-            opacity: 0.18;
-            border-top: 2px dashed rgba(255,255,255,0.72);
-        }}
-
-        .zone-left {{
-            left: 6%;
-            width: 29.33%;
-            background: #60a5fa;
-        }}
-
-        .zone-mid {{
-            left: 35.33%;
-            width: 29.33%;
-            background: #facc15;
-        }}
-
-        .zone-right {{
-            left: 64.66%;
-            width: 29.33%;
-            background: #fb7185;
-        }}
-
-        .zone-label {{
-            position: absolute;
-            bottom: 54%;
-            font-size: 13px;
-            font-weight: 800;
-            color: #14532d;
-            background: rgba(255,255,255,0.82);
-            padding: 6px 10px;
-            border-radius: 999px;
-        }}
-
-        .zl {{ left: 12%; }}
-        .zm {{ left: 43%; }}
-        .zr {{ left: 74%; }}
 
         .overlay-dot {{
-            position: absolute;
-            width: 18px;
-            height: 18px;
-            border-radius: 999px;
-            border: 3px solid white;
-            box-shadow: 0 0 0 3px rgba(15,23,42,0.12);
+            position:absolute;
+            width:18px;
+            height:18px;
+            border-radius:999px;
+            border:3px solid white;
+            box-shadow:0 0 0 3px rgba(15,23,42,0.12);
         }}
 
-        .overlay-entry {{
-            background: #2563eb;
-        }}
-
-        .overlay-shot {{
-            background: #f59e0b;
-        }}
-
-        .overlay-sog {{
-            background: #7c3aed;
-        }}
-
-        .overlay-goal {{
-            background: #dc2626;
-            width: 22px;
-            height: 22px;
-        }}
+        .overlay-entry {{ background:#2563eb; }}
+        .overlay-shot {{ background:#f59e0b; }}
+        .overlay-sog {{ background:#7c3aed; }}
+        .overlay-goal {{ background:#dc2626; width:22px; height:22px; }}
 
         .legend-row {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 14px;
+            display:flex;
+            flex-wrap:wrap;
+            gap:10px;
+            margin-top:14px;
         }}
 
         .legend-item {{
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            padding: 8px 12px;
-            border-radius: 999px;
-            font-size: 13px;
-            font-weight: 700;
-            color: {TEXT_SUB};
+            display:inline-flex;
+            align-items:center;
+            gap:8px;
+            background:#f8fafc;
+            border:1px solid #e2e8f0;
+            padding:8px 12px;
+            border-radius:999px;
+            font-size:13px;
+            font-weight:700;
+            color:{TEXT_SUB};
         }}
 
         .legend-dot {{
-            width: 14px;
-            height: 14px;
-            border-radius: 999px;
+            width:14px;
+            height:14px;
+            border-radius:999px;
         }}
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_info_card(title: str, value: str, subtitle: str, accent: str) -> None:
+    accent_class = {
+        "blue": "accent-blue",
+        "red": "accent-red",
+        "green": "accent-green",
+        "orange": "accent-orange",
+    }.get(accent, "accent-blue")
+
+    st.markdown(
+        f"""
+        <div class="safe-card {accent_class}">
+            <div class="safe-card-title">{title}</div>
+            <div class="safe-card-value">{value}</div>
+            <div class="safe-card-sub">{subtitle}</div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -1172,86 +997,64 @@ def render_match_header() -> None:
     sync_text = "Cloud verbonden" if cloud_enabled() else "Lokale modus"
     live_text = "Live" if st.session_state.timer_running else "Niet live"
 
-    st.markdown(
-        f"""
-        <div class="match-header">
-            <div class="match-grid">
+    with st.container(border=True):
+        c1, c2, c3 = st.columns([1.4, 1, 1.4])
+        with c1:
+            st.markdown(f"## {st.session_state.team_name}")
+            st.caption("Eigen team")
+        with c2:
+            st.metric("Wedstrijdscore", f"{st.session_state.score_team} - {st.session_state.score_opponent}")
+        with c3:
+            st.markdown(f"## {st.session_state.opponent_name}")
+            st.caption("Tegenstander")
+
+        s1, s2, s3, s4, s5 = st.columns(5)
+        s1.info(f"⏱ {current_time_str()}")
+        s2.info(f"🏑 {st.session_state.quarter}")
+        s3.info(f"📡 {sync_text}")
+        s4.info(f"🔴 {live_text}")
+        s5.info(f"🆔 {st.session_state.match_id}")
+
+
+def get_event_pill_class(event_name: str) -> str:
+    if event_name == "Goal":
+        return "pill-red"
+    if event_name in ["Schot", "Schot op goal", "Cirkelentry"]:
+        return "pill-blue"
+    if event_name in ["Hoge balverovering", "Press succes"]:
+        return "pill-green"
+    return "pill-gray"
+
+
+def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
+    if feed_df.empty:
+        st.info("Nog geen events in de live feed.")
+        return
+
+    ordered = feed_df.sort_values("created_at", ascending=False).head(max_items)
+
+    for _, row in ordered.iterrows():
+        team_color = TEAM_BLUE if row["team"] == st.session_state.team_name else OPP_RED
+        zone_html = f'<span class="pill pill-gray">{row["zone"]}</span>' if str(row["zone"]).strip() else ""
+        notes_html = f'<span class="pill pill-gray">{row["notes"]}</span>' if str(row["notes"]).strip() else ""
+        event_class = get_event_pill_class(str(row["event"]))
+
+        st.markdown(
+            f"""
+            <div class="mini-feed">
+                <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:8px;">
+                    <div style="font-size:15px; font-weight:800; color:{team_color};">{row["team"]} • {row["quarter"]}</div>
+                    <div style="font-size:13px; color:{TEXT_SUB}; font-weight:700;">{row["time"]}</div>
+                </div>
                 <div>
-                    <div class="team-name">{st.session_state.team_name}</div>
-                    <div class="team-sub">Eigen team</div>
-                </div>
-
-                <div class="score-box">
-                    <div class="score-main">{st.session_state.score_team} - {st.session_state.score_opponent}</div>
-                    <div class="score-sub">Wedstrijdscore</div>
-                </div>
-
-                <div style="text-align:right;">
-                    <div class="team-name">{st.session_state.opponent_name}</div>
-                    <div class="team-sub">Tegenstander</div>
+                    <span class="pill {event_class}">{row["event"]}</span>
+                    {zone_html}
+                    {notes_html}
                 </div>
             </div>
-
-            <div class="status-row">
-                <div class="status-pill">⏱ Tijd {current_time_str()}</div>
-                <div class="status-pill">🏑 {st.session_state.quarter}</div>
-                <div class="status-pill">📡 {sync_text}</div>
-                <div class="status-pill">🔴 {live_text}</div>
-                <div class="status-pill">🆔 {st.session_state.match_id}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_kpi_card(label: str, value: str, subtitle: str, accent: str = "blue") -> None:
-    accent_class = {
-        "blue": "accent-top-blue",
-        "red": "accent-top-red",
-        "green": "accent-top-green",
-        "orange": "accent-top-orange",
-    }.get(accent, "accent-top-blue")
-
-    st.markdown(
-        f"""
-        <div class="kpi-card {accent_class}">
-            <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{value}</div>
-            <div class="kpi-sub">{subtitle}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_insight_card(title: str, value: str, subtitle: str, accent_color: str) -> None:
-    st.markdown(
-        f"""
-        <div class="insight-card">
-            <div class="insight-accent" style="background:{accent_color};"></div>
-            <div class="insight-title">{title}</div>
-            <div class="insight-value">{value}</div>
-            <div class="insight-sub">{subtitle}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render_section_card(title: str, lines: list[str]) -> None:
-    list_items = "".join([f"<li>{line}</li>" for line in lines])
-    st.markdown(
-        f"""
-        <div class="section-card">
-            <div class="section-title">{title}</div>
-            <ul class="section-list">
-                {list_items}
-            </ul>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def render_team_header(title: str, color: str) -> None:
@@ -1266,7 +1069,6 @@ def render_team_header(title: str, color: str) -> None:
             font-size:22px;
             margin-bottom:10px;
             text-align:center;
-            box-shadow:0 10px 24px rgba(15,23,42,0.12);
         ">
             {title}
         </div>
@@ -1283,7 +1085,6 @@ def render_heatmap_card(title: str, count: int, pct: float, alpha_value: float) 
             border: 1px solid {CARD_BORDER};
             border-radius: 18px;
             padding: 16px;
-            box-shadow: 0 8px 22px rgba(15,23,42,0.05);
             min-height: 140px;
         ">
             <div style="font-weight:800; font-size:18px; color:{TEXT_MAIN};">{title}</div>
@@ -1300,46 +1101,6 @@ def heatmap_alpha(value: int, max_value: int) -> float:
     if max_value <= 0:
         return base
     return min(0.55, base + (value / max_value) * 0.42)
-
-
-def get_event_badge_class(event_name: str) -> str:
-    if event_name == "Goal":
-        return "badge-red"
-    if event_name in ["Schot", "Schot op goal", "Cirkelentry"]:
-        return "badge-blue"
-    if event_name in ["Hoge balverovering", "Press succes"]:
-        return "badge-green"
-    return "badge-gray"
-
-
-def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
-    if feed_df.empty:
-        st.info("Nog geen events in de live feed.")
-        return
-
-    ordered = feed_df.sort_values("created_at", ascending=False).head(max_items)
-
-    for _, row in ordered.iterrows():
-        team_color = TEAM_BLUE if row["team"] == st.session_state.team_name else OPP_RED
-        zone_html = f'<span class="badge badge-gray">{row["zone"]}</span>' if str(row["zone"]).strip() else ""
-        notes_html = f'<span class="badge badge-gray">{row["notes"]}</span>' if str(row["notes"]).strip() else ""
-
-        st.markdown(
-            f"""
-            <div class="feed-card">
-                <div class="feed-top">
-                    <div class="feed-team" style="color:{team_color};">{row["team"]} • {row["quarter"]}</div>
-                    <div class="feed-time">{row["time"]}</div>
-                </div>
-                <div style="font-size:16px; font-weight:800; color:{TEXT_MAIN};">
-                    <span class="badge {get_event_badge_class(str(row["event"]))}">{row["event"]}</span>
-                    {zone_html}
-                    {notes_html}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
 
 def render_team_tagging(team_name: str, prefix: str, header_color: str) -> None:
@@ -1572,8 +1333,8 @@ def live_clock():
 # --------------------------------------------------
 inject_custom_css()
 
-st.title("🏑 Hockey Coach Analyse Tool V6.1 Stable")
-st.caption("Professionele coachweergave met live tagging, KPI-dashboard, event feed en veldvisualisatie.")
+st.title("🏑 Hockey Coach Analyse Tool V6.2 Safe")
+st.caption("Stabiele versie zonder HTML-headerfout en zonder onveilige insight-call.")
 
 top1, top2, top3, top4 = st.columns([1.25, 1.25, 0.75, 1.0])
 with top1:
@@ -1704,28 +1465,28 @@ else:
 
             row1 = st.columns(4)
             with row1[0]:
-                render_kpi_card(
+                render_info_card(
                     f"Cirkelentries {team}",
                     str(kpi["team_entries"]),
                     "Aantal entries van eigen team in de aanvallende zone.",
                     "blue",
                 )
             with row1[1]:
-                render_kpi_card(
+                render_info_card(
                     "Entry → shot",
                     f"{kpi['team_entry_to_shot_pct']:.0f}%",
                     "Hoe vaak een entry wordt omgezet in een schot.",
                     "green",
                 )
             with row1[2]:
-                render_kpi_card(
+                render_info_card(
                     "Shot → goal",
                     f"{kpi['team_shot_to_goal_pct']:.0f}%",
                     "Efficiëntie van afronding uit de genomen schoten.",
                     "green",
                 )
             with row1[3]:
-                render_kpi_card(
+                render_info_card(
                     "Hoge balwinst → entry",
                     f"{kpi['team_highwin_to_entry_pct']:.0f}%",
                     "Doorpakken na hoge balverovering richting cirkel.",
@@ -1734,28 +1495,28 @@ else:
 
             row2 = st.columns(4)
             with row2[0]:
-                render_kpi_card(
+                render_info_card(
                     "Turnover eigen helft → counter",
                     f"{kpi['team_turnover_to_counter_pct']:.0f}%",
                     "Risico na balverlies in eigen helft.",
                     "orange",
                 )
             with row2[1]:
-                render_kpi_card(
+                render_info_card(
                     "Entries tegen → schot",
                     f"{kpi['opp_entry_to_shot_pct']:.0f}%",
                     "Hoe vaak de tegenstander van entry naar schot komt.",
                     "red",
                 )
             with row2[2]:
-                render_kpi_card(
+                render_info_card(
                     "Schoten tegen → goal",
                     f"{kpi['opp_shot_to_goal_pct']:.0f}%",
                     "Hoe effectief de tegenstander afrondt.",
                     "red",
                 )
             with row2[3]:
-                render_kpi_card(
+                render_info_card(
                     "Press successen",
                     str(kpi["team_press_success"]),
                     "Aantal geregistreerde geslaagde pressmomenten.",
@@ -1765,14 +1526,19 @@ else:
             st.markdown("### Coach insights")
             insight_cards = get_insight_cards(df)
             ic1, ic2, ic3, ic4 = st.columns(4)
+
             with ic1:
-                render_insight_card(**insight_cards[0])
+                card = insight_cards[0]
+                render_info_card(card["title"], card["value"], card["subtitle"], "green")
             with ic2:
-                render_insight_card(**insight_cards[1])
+                card = insight_cards[1]
+                render_info_card(card["title"], card["value"], card["subtitle"], "orange")
             with ic3:
-                render_insight_card(**insight_cards[2])
+                card = insight_cards[2]
+                render_info_card(card["title"], card["value"], card["subtitle"], "blue")
             with ic4:
-                render_insight_card(**insight_cards[3])
+                card = insight_cards[3]
+                render_info_card(card["title"], card["value"], card["subtitle"], "red")
 
             st.markdown("### Overzicht per kwart")
             quarter_df = build_quarter_report_df(df)
@@ -1876,34 +1642,42 @@ else:
 
             c1, c2 = st.columns(2)
             with c1:
-                render_section_card("Aanval", sections["Aanval"])
+                st.markdown("### Aanval")
+                for line in sections["Aanval"]:
+                    st.write(f"- {line}")
             with c2:
-                render_section_card("Press", sections["Press"])
+                st.markdown("### Press")
+                for line in sections["Press"]:
+                    st.write(f"- {line}")
 
             c3, c4 = st.columns(2)
             with c3:
-                render_section_card("Omschakeling", sections["Omschakeling"])
+                st.markdown("### Omschakeling")
+                for line in sections["Omschakeling"]:
+                    st.write(f"- {line}")
             with c4:
-                render_section_card("Verdediging", sections["Verdediging"])
+                st.markdown("### Verdediging")
+                for line in sections["Verdediging"]:
+                    st.write(f"- {line}")
 
-            c5, c6 = st.columns([1, 1])
-            with c5:
-                render_section_card("Actiepunt", sections["Actiepunt"])
-            with c6:
-                st.markdown("**Volledig coachrapport**")
-                st.text_area(
-                    "Coachrapport",
-                    value=st.session_state.auto_notes,
-                    height=280,
-                    label_visibility="collapsed",
-                )
-                st.download_button(
-                    "Download wedstrijdrapport TXT",
-                    data=st.session_state.auto_notes.encode("utf-8"),
-                    file_name="wedstrijdrapport.txt",
-                    mime="text/plain",
-                    use_container_width=True,
-                )
+            st.markdown("### Actiepunt")
+            for line in sections["Actiepunt"]:
+                st.write(f"- {line}")
+
+            st.markdown("### Volledig coachrapport")
+            st.text_area(
+                "Coachrapport",
+                value=st.session_state.auto_notes,
+                height=280,
+                label_visibility="collapsed",
+            )
+            st.download_button(
+                "Download wedstrijdrapport TXT",
+                data=st.session_state.auto_notes.encode("utf-8"),
+                file_name="wedstrijdrapport.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
 
     with tab5:
         st.markdown("### Live event feed")
@@ -1919,13 +1693,9 @@ else:
             with f2:
                 st.markdown("#### Snelle wedstrijdsamenvatting")
                 insight_cards = get_insight_cards(df)
-                for card in insight_cards:
-                    render_insight_card(
-                        title=card["title"],
-                        value=card["value"],
-                        subtitle=card["subtitle"],
-                        accent_color=card["accent_color"],
-                    )
+                for i, card in enumerate(insight_cards):
+                    accent = ["green", "orange", "blue", "red"][i]
+                    render_info_card(card["title"], card["value"], card["subtitle"], accent)
 
     with tab6:
         st.markdown("### Eventlog")
