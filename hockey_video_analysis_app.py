@@ -155,6 +155,7 @@ def set_new_match_id() -> None:
 def recalc_score() -> None:
     df = build_df()
     st.session_state.score_team = count_events(df, st.session_state.team_name, "Goal")
+    st.session_state.score_opponent = count_events(
         df, st.session_state.opponent_name, "Goal"
     )
 
