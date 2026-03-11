@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import uuid
 from io import BytesIO
+from textwrap import dedent
 
 try:
     from supabase import create_client
@@ -11,7 +12,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V6.2 Safe",
+    page_title="Hockey Coach Analyse Tool V6.3 HTML-safe",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -70,6 +71,7 @@ CARD_BG = "#ffffff"
 CARD_BORDER = "#dbe2ea"
 TEXT_MAIN = "#0f172a"
 TEXT_SUB = "#475569"
+
 
 # --------------------------------------------------
 # Helpers
@@ -741,7 +743,7 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
 # UI helpers
 # --------------------------------------------------
 def inject_custom_css() -> None:
-    st.markdown(
+    css = dedent(
         f"""
         <style>
         .stApp {{
@@ -968,9 +970,9 @@ def inject_custom_css() -> None:
             border-radius:999px;
         }}
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    ).strip()
+    st.markdown(css, unsafe_allow_html=True)
 
 
 def render_info_card(title: str, value: str, subtitle: str, accent: str) -> None:
@@ -981,16 +983,16 @@ def render_info_card(title: str, value: str, subtitle: str, accent: str) -> None
         "orange": "accent-orange",
     }.get(accent, "accent-blue")
 
-    st.markdown(
+    html = dedent(
         f"""
         <div class="safe-card {accent_class}">
             <div class="safe-card-title">{title}</div>
             <div class="safe-card-value">{value}</div>
             <div class="safe-card-sub">{subtitle}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    ).strip()
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_match_header() -> None:
@@ -1039,7 +1041,7 @@ def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
         notes_html = f'<span class="pill pill-gray">{row["notes"]}</span>' if str(row["notes"]).strip() else ""
         event_class = get_event_pill_class(str(row["event"]))
 
-        st.markdown(
+        html = dedent(
             f"""
             <div class="mini-feed">
                 <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:8px;">
@@ -1052,13 +1054,13 @@ def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
                     {notes_html}
                 </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """
+        ).strip()
+        st.markdown(html, unsafe_allow_html=True)
 
 
 def render_team_header(title: str, color: str) -> None:
-    st.markdown(
+    html = dedent(
         f"""
         <div style="
             background:{color};
@@ -1068,32 +1070,30 @@ def render_team_header(title: str, color: str) -> None:
             font-weight:800;
             font-size:22px;
             margin-bottom:10px;
-            text-align:center;
-        ">
+            text-align:center;">
             {title}
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    ).strip()
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_heatmap_card(title: str, count: int, pct: float, alpha_value: float) -> None:
-    st.markdown(
+    html = dedent(
         f"""
         <div style="
             background: rgba(37,99,235,{alpha_value});
             border: 1px solid {CARD_BORDER};
             border-radius: 18px;
             padding: 16px;
-            min-height: 140px;
-        ">
+            min-height: 140px;">
             <div style="font-weight:800; font-size:18px; color:{TEXT_MAIN};">{title}</div>
             <div style="font-size:40px; font-weight:900; line-height:1.1; color:{TEXT_MAIN};">{count}</div>
             <div style="font-size:18px; color:{TEXT_MAIN};">{pct:.0f}%</div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    ).strip()
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def heatmap_alpha(value: int, max_value: int) -> float:
@@ -1210,22 +1210,20 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
             offset = offsets[zone][i % len(offsets[zone])]
             base_y = event_y_map.get(selected_event, "60%")
             overlay_html.append(
-                f"""
-                <div class="overlay-dot {dot_class}"
-                     style="
-                        left:{zone_x_map[zone]};
-                        top:calc({base_y} + {offset}px);
-                        transform:translate(-50%, -50%);
-                     ">
-                </div>
-                """
+                dedent(
+                    f"""
+                    <div class="overlay-dot {dot_class}"
+                         style="left:{zone_x_map[zone]}; top:calc({base_y} + {offset}px); transform:translate(-50%, -50%);">
+                    </div>
+                    """
+                ).strip()
             )
 
     dominant_text = "geen data"
     if total > 0:
         dominant_text = max(zone_counts.items(), key=lambda x: x[1])[0].lower()
 
-    st.markdown(
+    html = dedent(
         f"""
         <div class="field-wrap">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap;">
@@ -1262,9 +1260,10 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
                 Dominante zone: <strong>{dominant_text}</strong> • totaal geselecteerde events: <strong>{total}</strong>
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    ).strip()
+
+    st.markdown(html, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Linksvoor", zone_counts["Linksvoor"])
@@ -1274,11 +1273,26 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
     max_count = max(zone_counts.values()) if total > 0 else 1
     h1, h2, h3 = st.columns(3)
     with h1:
-        render_heatmap_card("Linksvoor", zone_counts["Linksvoor"], zone_pcts["Linksvoor"], heatmap_alpha(zone_counts["Linksvoor"], max_count))
+        render_heatmap_card(
+            "Linksvoor",
+            zone_counts["Linksvoor"],
+            zone_pcts["Linksvoor"],
+            heatmap_alpha(zone_counts["Linksvoor"], max_count),
+        )
     with h2:
-        render_heatmap_card("Middenvoor", zone_counts["Middenvoor"], zone_pcts["Middenvoor"], heatmap_alpha(zone_counts["Middenvoor"], max_count))
+        render_heatmap_card(
+            "Middenvoor",
+            zone_counts["Middenvoor"],
+            zone_pcts["Middenvoor"],
+            heatmap_alpha(zone_counts["Middenvoor"], max_count),
+        )
     with h3:
-        render_heatmap_card("Rechtsvoor", zone_counts["Rechtsvoor"], zone_pcts["Rechtsvoor"], heatmap_alpha(zone_counts["Rechtsvoor"], max_count))
+        render_heatmap_card(
+            "Rechtsvoor",
+            zone_counts["Rechtsvoor"],
+            zone_pcts["Rechtsvoor"],
+            heatmap_alpha(zone_counts["Rechtsvoor"], max_count),
+        )
 
 
 # --------------------------------------------------
@@ -1333,8 +1347,8 @@ def live_clock():
 # --------------------------------------------------
 inject_custom_css()
 
-st.title("🏑 Hockey Coach Analyse Tool V6.2 Safe")
-st.caption("Stabiele versie zonder HTML-headerfout en zonder onveilige insight-call.")
+st.title("🏑 Hockey Coach Analyse Tool V6.3 HTML-safe")
+st.caption("Veilige versie zonder zichtbare raw HTML in header, cards en veldvisualisatie.")
 
 top1, top2, top3, top4 = st.columns([1.25, 1.25, 0.75, 1.0])
 with top1:
