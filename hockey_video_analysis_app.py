@@ -639,6 +639,60 @@ def render_setup_bar() -> None:
     render_live_clock_bar()
 
 # --------------------------------------------------
+# Insight helpers
+# --------------------------------------------------
+def get_insight_cards(df: pd.DataFrame) -> list[dict]:
+    if df.empty:
+        return [
+            {"title": "Sterkte nu", "value": "Nog geen data", "subtitle": "Voeg events toe."},
+            {"title": "Grootste risico", "value": "Nog geen data", "subtitle": "Nog geen analyse."},
+            {"title": "Belangrijkste patroon", "value": "Nog geen data", "subtitle": "Nog geen patroon zichtbaar."},
+            {"title": "Coachactie nu", "value": "Nog geen data", "subtitle": "Nog geen advies."},
+        ]
+
+    kpi = build_kpi_summary(df)
+    patterns = generate_tactical_patterns(df)
+    team = st.session_state.team_name
+    opp = st.session_state.opponent_name
+
+    sterkte_value = "Gebalanceerd profiel"
+    sterkte_sub = "Nog geen duidelijke dominante kracht."
+    if kpi["team_high_wins"] >= 4:
+        sterkte_value = "Press als wapen"
+        sterkte_sub = f"{team} heeft {kpi['team_high_wins']} hoge balveroveringen."
+    elif kpi["team_entry_to_shot_pct"] >= 50 and kpi["team_entries"] >= 4:
+        sterkte_value = "Goede cirkelopvolging"
+        sterkte_sub = f"{kpi['team_entry_to_shot_pct']:.0f}% van de entries leidt tot een schot."
+
+    risico_value = "Geen dominant risico"
+    risico_sub = "Wedstrijdprofiel oogt in balans."
+    if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
+        risico_value = "Balverlies = counter tegen"
+        risico_sub = f"{kpi['team_turnover_to_counter_pct']:.0f}% van turnovers eigen helft leidt tot gevaar."
+    elif kpi["opp_entry_to_shot_pct"] > 50 and kpi["opp_entries"] >= 3:
+        risico_value = "Tegenstander komt te makkelijk tot schot"
+        risico_sub = f"{opp} zet {kpi['opp_entry_to_shot_pct']:.0f}% van entries om in schoten."
+
+    patroon_value = "Nog geen duidelijk patroon"
+    patroon_sub = patterns[0] if patterns else "Meer events nodig."
+
+    actie_value = "Balans vasthouden"
+    actie_sub = "Details blijven monitoren."
+    if kpi["team_entry_to_shot_pct"] < 40 and kpi["team_entries"] > 0:
+        actie_value = "Sneller tot doelpoging"
+        actie_sub = "Na entry eerder schieten of de beslissende pass geven."
+    elif kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
+        actie_value = "Veiliger opbouwen"
+        actie_sub = "Minder risico in eigen helft en restverdediging sneller neerzetten."
+
+    return [
+        {"title": "Sterkte nu", "value": sterkte_value, "subtitle": sterkte_sub},
+        {"title": "Grootste risico", "value": risico_value, "subtitle": risico_sub},
+        {"title": "Belangrijkste patroon", "value": patroon_value, "subtitle": patroon_sub},
+        {"title": "Coachactie nu", "value": actie_value, "subtitle": actie_sub},
+    ]
+
+# --------------------------------------------------
 # Feed helpers
 # --------------------------------------------------
 def get_event_pill_class(event_name: str) -> str:
