@@ -1658,11 +1658,7 @@ def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
     for row_i, row in enumerate(rows):
         cols = st.columns(len(row))
         for col_i, event_name in enumerate(row):
-            if cols[col_i].button(
-                event_name,
-                key=f"{prefix}_{row_i}_{col_i}",
-                use_container_width=True,
-            ):
+            if cols[col_i].button(event_name, key=f"{prefix}_{row_i}_{col_i}", use_container_width=True):
                 start_smart_tag(team_name, event_name)
                 st.rerun()
 
@@ -1770,62 +1766,80 @@ def render_live_screen(df: pd.DataFrame) -> None:
 
 
 
+def detect_momentum(df: pd.DataFrame) -> list[str]:
+    """Detect simple momentum phases such as multiple entries in short time."""
+    if df.empty:
+        return []
+
+    moments = []
+    entries = df[df["event"] == "Cirkelentry"].copy()
+    if len(entries) >= 3:
+        entries["sec"] = entries["time"].apply(parse_mmss)
+        entries = entries.sort_values("sec")
+        for i in range(len(entries) - 2):
+            t1 = entries.iloc[i]["sec"]
+            t3 = entries.iloc[i + 2]["sec"]
+            if t3 - t1 <= 120:
+                moments.append("3 cirkelentries binnen 2 minuten → sterke aanvalsfase")
+                break
+
+    turnovers = df[df["event"] == "Turnover eigen helft"]
+    counters = df[df["event"] == "Counter tegen na balverlies"]
+    if len(turnovers) >= 2 and len(counters) >= 1:
+        moments.append("Balverlies eigen helft leidt tot counters tegen")
+
+    return moments
+
+
+
+def build_entry_heatmap(df: pd.DataFrame) -> pd.DataFrame:
+    """Return entry distribution per zone for heatmap."""
+    entries = df[df["event"] == "Cirkelentry"]
+    zones = {
+        "Linksvoor": len(entries[entries["zone"] == "Linksvoor"]),
+        "Middenvoor": len(entries[entries["zone"] == "Middenvoor"]),
+        "Rechtsvoor": len(entries[entries["zone"] == "Rechtsvoor"]),
+    }
+    total = sum(zones.values())
+    rows = []
+    for z, v in zones.items():
+        rows.append({"zone": z, "entries": v, "pct": percent(v, total)})
+    return pd.DataFrame(rows)
+
+
+
 def render_analysis_screen(df: pd.DataFrame) -> None:
     if df.empty:
         st.info("Nog geen events toegevoegd.")
         return
 
     kpi = build_kpi_summary(df)
+
+    st.markdown("### Kernstatistieken")
     row1 = st.columns(4)
     with row1[0]:
-        render_info_card(
-            f"Cirkelentries {st.session_state.team_name}",
-            str(kpi["team_entries"]),
-            "Aantal entries van eigen team in de aanvallende zone.",
-            "blue",
-        )
+        render_info_card("Cirkelentries", str(kpi["team_entries"]), "Entries eigen team", "blue")
     with row1[1]:
-        render_info_card(
-            "Entry → shot",
-            f"{kpi['team_entry_to_shot_pct']:.0f}%",
-            "Hoe vaak een entry wordt omgezet in een schot.",
-            "green",
-        )
+        render_info_card("Entry → shot", f"{kpi['team_entry_to_shot_pct']:.0f}%", "Efficiëntie aanval", "green")
     with row1[2]:
-        render_info_card(
-            "Shot → goal",
-            f"{kpi['team_shot_to_goal_pct']:.0f}%",
-            "Efficiëntie van afronding uit de genomen schoten.",
-            "green",
-        )
+        render_info_card("Shot → goal", f"{kpi['team_shot_to_goal_pct']:.0f}%", "Afwerking", "green")
     with row1[3]:
-        render_info_card(
-            "Press successen",
-            str(kpi["team_press_success"]),
-            "Aantal geregistreerde geslaagde pressmomenten.",
-            "blue",
-        )
+        render_info_card("Press succes", str(kpi["team_press_success"]), "Pressmomenten", "blue")
 
-    st.markdown("### Coach insights")
-    insight_cards = get_insight_cards(df)
-    ic1, ic2, ic3, ic4 = st.columns(4)
-    cols = [ic1, ic2, ic3, ic4]
-    colors = ["green", "orange", "blue", "red"]
-    for idx, card in enumerate(insight_cards):
-        with cols[idx]:
-            render_info_card(card["title"], card["value"], card["subtitle"], colors[idx])
+    st.markdown("### Momentum analyse")
+    moments = detect_momentum(df)
+    if moments:
+        for m in moments:
+            st.success(m)
+    else:
+        st.info("Nog geen duidelijke momentumfase herkend.")
 
-    b1, b2 = st.columns([1.1, 1.4])
-    with b1:
-        st.markdown("### Overzicht per kwart")
-        quarter_df = build_quarter_report_df(df)
-        if quarter_df.empty:
-            st.info("Nog geen kwartdata.")
-        else:
-            st.dataframe(quarter_df, use_container_width=True, hide_index=True)
-    with b2:
-        st.markdown("### Match timeline")
-        render_timeline(df)
+    st.markdown("### Cirkelentry heatmap")
+    heat_df = build_entry_heatmap(df)
+    st.dataframe(heat_df, use_container_width=True, hide_index=True)
+
+    st.markdown("### Match timeline")
+    render_timeline(df)
 
 
 
@@ -1887,100 +1901,94 @@ def render_field_screen(df: pd.DataFrame) -> None:
 
 
 
+def generate_halftime_report(df: pd.DataFrame) -> str:
+    if df.empty:
+        return "Nog geen data voor rustanalyse."
+
+    kpi = build_kpi_summary(df)
+
+    strong = []
+    risk = []
+    action = []
+
+    if kpi["team_entry_to_shot_pct"] >= 50:
+        strong.append("Entries worden goed omgezet in schoten.")
+
+    if kpi["team_turnover_to_counter_pct"] >= 50:
+        risk.append("Balverlies eigen helft leidt tot counters.")
+        action.append("Veiliger opbouwen in eigen helft.")
+
+    if kpi["team_entry_to_shot_pct"] < 40:
+        action.append("Sneller schieten na cirkelentry.")
+
+    txt = "RUSTANALYSE\n\n"
+    txt += "Sterk:\n" + "\n".join(f"- {x}" for x in strong) + "\n\n"
+    txt += "Risico:\n" + "\n".join(f"- {x}" for x in risk) + "\n\n"
+    txt += "Actie:\n" + "\n".join(f"- {x}" for x in action)
+
+    return txt
+
+
+
+def export_pdf_report(text: str) -> bytes:
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.pagesizes import A4
+
+    buffer = BytesIO()
+    styles = getSampleStyleSheet()
+
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    story = []
+
+    for line in text.split("\n"):
+        story.append(Paragraph(line, styles["Normal"]))
+        story.append(Spacer(1, 6))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+
 def render_report_screen(df: pd.DataFrame) -> None:
     if df.empty:
         st.info("Nog geen data voor coachrapport.")
         return
 
-    sections = build_report_sections(df)
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("### Aanval")
-        for line in sections["Aanval"]:
-            st.write(f"- {line}")
-        st.markdown("### Omschakeling")
-        for line in sections["Omschakeling"]:
-            st.write(f"- {line}")
-    with c2:
-        st.markdown("### Press")
-        for line in sections["Press"]:
-            st.write(f"- {line}")
-        st.markdown("### Verdediging")
-        for line in sections["Verdediging"]:
-            st.write(f"- {line}")
+    st.markdown("### Rustanalyse")
 
-    st.markdown("### Actiepunt")
-    for line in sections["Actiepunt"]:
-        st.write(f"- {line}")
+    if st.button("Genereer rustanalyse"):
+        st.session_state.halftime_report = generate_halftime_report(df)
+
+    halftime = st.session_state.get("halftime_report", "")
+
+    if halftime:
+        st.text_area("Rustanalyse", halftime, height=200)
 
     st.markdown("### Volledig coachrapport")
-    st.text_area(
-        "Coachrapport",
-        value=st.session_state.auto_notes,
-        height=280,
-        label_visibility="collapsed",
-    )
+    report_text = st.session_state.auto_notes
 
-    d1, d2 = st.columns(2)
-    with d1:
+    st.text_area("Rapport", report_text, height=250)
+
+    st.markdown("### Exports")
+    c1, c2 = st.columns(2)
+
+    with c1:
         st.download_button(
-            "Download wedstrijdrapport TXT",
-            data=st.session_state.auto_notes.encode("utf-8"),
-            file_name="wedstrijdrapport.txt",
-            mime="text/plain",
-            use_container_width=True,
+            "Download TXT rapport",
+            data=report_text.encode("utf-8"),
+            file_name="coachrapport.txt",
         )
-    with d2:
+
+    with c2:
+        pdf_data = export_pdf_report(report_text)
         st.download_button(
-            "Download Excel",
-            data=export_excel(df),
-            file_name="wedstrijd_analyse.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
+            "Download PDF rapport",
+            data=pdf_data,
+            file_name="coachrapport.pdf",
         )
 
     st.markdown("### Eventlog")
-    st.dataframe(df[["quarter", "time", "team", "event", "zone", "notes", "id"]], use_container_width=True, hide_index=True)
+    st.dataframe(df[["quarter", "time", "team", "event", "zone", "notes"]], use_container_width=True, hide_index=True)
 
-
-# --------------------------------------------------
-# Live fragments
-# --------------------------------------------------
-@st.fragment(run_every="2s" if cloud_enabled() else None)
-def auto_sync_cloud():
-    if cloud_enabled() and st.session_state.match_id:
-        fresh = load_events_from_cloud(st.session_state.match_id)
-        if len(fresh) != st.session_state.last_sync_count:
-            st.session_state.events = fresh
-            refresh_derived_state()
-        st.session_state.last_sync_count = len(fresh)
-        st.session_state.last_sync_time = time.strftime("%H:%M:%S")
-
-
-# --------------------------------------------------
-# Layout start
-# --------------------------------------------------
-inject_custom_css()
-render_hero_header()
-render_setup_bar()
-render_navigation()
-auto_sync_cloud()
-
-df = build_df()
-if not st.session_state.auto_notes and not df.empty:
-    refresh_derived_state()
-
-if cloud_enabled():
-    last_sync = st.session_state.last_sync_time or "nog niet"
-    st.success(f"Cloud sync actief • laatste sync: {last_sync} • events: {st.session_state.last_sync_count}")
-else:
-    st.warning("Cloud sync uit. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
-
-if st.session_state.active_screen == "LIVE":
-    render_live_screen(df)
-elif st.session_state.active_screen == "ANALYSE":
-    render_analysis_screen(df)
-elif st.session_state.active_screen == "VELD":
-    render_field_screen(df)
-else:
-    render_report_screen(df)
