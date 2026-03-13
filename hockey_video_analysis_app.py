@@ -73,7 +73,7 @@ EVENT_OPTIONS = [
     "Counter tegen na balverlies",
     "Cirkelverdediging fout",
 ]
-EVENT_NEEDS_ZONE = {"Cirkelentry", "Schot", "Schot op goal", "Goal"}
+EVENT_NEEDS_ZONE = {"Cirkelentry"}
 SMART_TAG_EVENTS = [
     "Cirkelentry",
     "Schot",
@@ -1382,7 +1382,7 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
         st.info("Nog geen data voor veldvisualisatie.")
         return
 
-    view_df = df[(df["team"] == selected_team) & (df["zone"].isin(FIELD_ZONES))].copy()
+    view_df = df[(df["team"] == selected_team)].copy()
     if selected_quarter != "Alles":
         view_df = view_df[view_df["quarter"] == selected_quarter]
 
@@ -1390,11 +1390,19 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
     zone_totals = {"Linksvoor": 0, "Middenvoor": 0, "Rechtsvoor": 0}
     for event_name in selected_layers:
         sub_df = view_df[view_df["event"] == event_name]
-        counts = {
-            "Linksvoor": len(sub_df[sub_df["zone"] == "Linksvoor"]),
-            "Middenvoor": len(sub_df[sub_df["zone"] == "Middenvoor"]),
-            "Rechtsvoor": len(sub_df[sub_df["zone"] == "Rechtsvoor"]),
-        }
+        if event_name == "Cirkelentry":
+            sub_df = sub_df[sub_df["zone"].isin(FIELD_ZONES)]
+            counts = {
+                "Linksvoor": len(sub_df[sub_df["zone"] == "Linksvoor"]),
+                "Middenvoor": len(sub_df[sub_df["zone"] == "Middenvoor"]),
+                "Rechtsvoor": len(sub_df[sub_df["zone"] == "Rechtsvoor"]),
+            }
+        else:
+            counts = {
+                "Linksvoor": 0,
+                "Middenvoor": len(sub_df),
+                "Rechtsvoor": 0,
+            }
         layer_counts[event_name] = counts
         for zone in FIELD_ZONES:
             zone_totals[zone] += counts[zone]
@@ -1705,24 +1713,30 @@ def render_field_screen(df: pd.DataFrame) -> None:
         ["Cirkelentry", "Schot", "Goal"],
         key="field_layers",
     )
+    st.caption("Alleen cirkelentries worden per links / midden / rechts-zone opgeslagen. Schoten en goals tellen mee als event, maar niet meer per zone.")
 
     selected_layers = st.session_state.field_layers or ["Cirkelentry"]
     render_field_view(df, st.session_state.field_team, st.session_state.field_quarter, selected_layers)
 
     st.markdown("### Heatmap samenvatting")
     summary_rows = []
-    view_df = df[(df["team"] == st.session_state.field_team) & (df["zone"].isin(FIELD_ZONES))].copy()
+    view_df = df[(df["team"] == st.session_state.field_team)].copy()
     if st.session_state.field_quarter != "Alles":
         view_df = view_df[view_df["quarter"] == st.session_state.field_quarter]
 
     for event_name in ["Cirkelentry", "Schot", "Goal"]:
         sub_df = view_df[view_df["event"] == event_name].copy()
-        zone_counts = sub_df["zone"].value_counts()
-        if sub_df.empty:
-            dominant = "geen data"
-            total_event = 0
+        if event_name == "Cirkelentry":
+            sub_df = sub_df[sub_df["zone"].isin(FIELD_ZONES)]
+            zone_counts = sub_df["zone"].value_counts()
+            if sub_df.empty:
+                dominant = "geen data"
+                total_event = 0
+            else:
+                dominant = zone_counts.idxmax()
+                total_event = len(sub_df)
         else:
-            dominant = zone_counts.idxmax()
+            dominant = "n.v.t."
             total_event = len(sub_df)
 
         summary_rows.append(
