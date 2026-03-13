@@ -639,6 +639,48 @@ def render_setup_bar() -> None:
     render_live_clock_bar()
 
 # --------------------------------------------------
+# Feed helpers
+# --------------------------------------------------
+def get_event_pill_class(event_name: str) -> str:
+    if event_name == "Goal":
+        return "pill-red"
+    if event_name in ["Schot", "Schot op goal", "Cirkelentry"]:
+        return "pill-blue"
+    if event_name in ["Hoge balverovering", "Press succes"]:
+        return "pill-green"
+    return "pill-gray"
+
+
+
+def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
+    if feed_df.empty:
+        st.info("Nog geen events in de live feed.")
+        return
+
+    ordered = feed_df.sort_values("created_at", ascending=False).head(max_items)
+    for _, row in ordered.iterrows():
+        team_color = TEAM_BLUE if row["team"] == st.session_state.team_name else OPP_RED
+        zone_html = f'<span class="pill pill-gray">{row["zone"]}</span>' if str(row["zone"]).strip() else ""
+        notes_html = f'<span class="pill pill-gray">{row["notes"]}</span>' if str(row["notes"]).strip() else ""
+        event_class = get_event_pill_class(str(row["event"]))
+        html = dedent(
+            f"""
+            <div class="mini-feed">
+                <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:8px;">
+                    <div style="font-size:15px; font-weight:800; color:{team_color};">{row['team']} • {row['quarter']}</div>
+                    <div style="font-size:13px; color:{TEXT_SUB}; font-weight:700;">{row['time']}</div>
+                </div>
+                <div>
+                    <span class="pill {event_class}">{row['event']}</span>
+                    {zone_html}
+                    {notes_html}
+                </div>
+            </div>
+            """
+        ).strip()
+        st.markdown(html, unsafe_allow_html=True)
+
+# --------------------------------------------------
 # Live / analysis / field / report screens
 # --------------------------------------------------
 def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
