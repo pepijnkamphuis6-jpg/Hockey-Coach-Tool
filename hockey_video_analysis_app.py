@@ -1921,10 +1921,22 @@ def generate_halftime_report(df: pd.DataFrame) -> str:
     if kpi["team_entry_to_shot_pct"] < 40:
         action.append("Sneller schieten na cirkelentry.")
 
-    txt = "RUSTANALYSE\n\n"
-    txt += "Sterk:\n" + "\n".join(f"- {x}" for x in strong) + "\n\n"
-    txt += "Risico:\n" + "\n".join(f"- {x}" for x in risk) + "\n\n"
-    txt += "Actie:\n" + "\n".join(f"- {x}" for x in action)
+    txt = "RUSTANALYSE
+
+"
+    txt += "Sterk:
+" + "
+".join(f"- {x}" for x in strong) + "
+
+"
+    txt += "Risico:
+" + "
+".join(f"- {x}" for x in risk) + "
+
+"
+    txt += "Actie:
+" + "
+".join(f"- {x}" for x in action)
 
     return txt
 
@@ -1941,7 +1953,8 @@ def export_pdf_report(text: str) -> bytes:
     doc = SimpleDocTemplate(buffer, pagesize=A4)
     story = []
 
-    for line in text.split("\n"):
+    for line in text.split("
+"):
         story.append(Paragraph(line, styles["Normal"]))
         story.append(Spacer(1, 6))
 
@@ -1990,5 +2003,53 @@ def render_report_screen(df: pd.DataFrame) -> None:
         )
 
     st.markdown("### Eventlog")
-    st.dataframe(df[["quarter", "time", "team", "event", "zone", "notes"]], use_container_width=True, hide_index=True)
+    st.dataframe(
+        df[["quarter", "time", "team", "event", "zone", "notes"]],
+        use_container_width=True,
+        hide_index=True,
+    )
 
+
+# --------------------------------------------------
+# Live fragments
+# --------------------------------------------------
+@st.fragment(run_every="2s" if cloud_enabled() else None)
+def auto_sync_cloud():
+    if cloud_enabled() and st.session_state.match_id:
+        fresh = load_events_from_cloud(st.session_state.match_id)
+        if len(fresh) != st.session_state.last_sync_count:
+            st.session_state.events = fresh
+            refresh_derived_state()
+        st.session_state.last_sync_count = len(fresh)
+        st.session_state.last_sync_time = time.strftime("%H:%M:%S")
+
+
+# --------------------------------------------------
+# Layout start
+# --------------------------------------------------
+inject_custom_css()
+render_hero_header()
+render_setup_bar()
+render_navigation()
+auto_sync_cloud()
+
+df = build_df()
+if not st.session_state.auto_notes and not df.empty:
+    refresh_derived_state()
+
+if cloud_enabled():
+    last_sync = st.session_state.last_sync_time or "nog niet"
+    st.success(
+        f"Cloud sync actief • laatste sync: {last_sync} • events: {st.session_state.last_sync_count}"
+    )
+else:
+    st.warning("Cloud sync uit. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
+
+if st.session_state.active_screen == "LIVE":
+    render_live_screen(df)
+elif st.session_state.active_screen == "ANALYSE":
+    render_analysis_screen(df)
+elif st.session_state.active_screen == "VELD":
+    render_field_screen(df)
+else:
+    render_report_screen(df)
