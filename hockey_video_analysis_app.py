@@ -42,6 +42,7 @@ DEFAULTS = {
     "field_team": None,
     "field_quarter": "Alles",
     "field_layers": ["Cirkelentry", "Schot", "Goal"],
+    "device_mode": "iPad",
 }
 
 for key, value in DEFAULTS.items():
@@ -1509,6 +1510,64 @@ def render_live_clock_bar() -> None:
 
 
 
+def sync_team_name_from_ui() -> None:
+    st.session_state.team_name = st.session_state.ui_team_name
+
+
+
+def sync_opponent_name_from_ui() -> None:
+    st.session_state.opponent_name = st.session_state.ui_opponent_name
+
+
+
+def sync_quarter_from_ui() -> None:
+    st.session_state.quarter = st.session_state.ui_quarter
+
+
+
+def sync_match_id_from_ui() -> None:
+    st.session_state.match_id = st.session_state.ui_match_id
+
+
+
+def sync_device_mode_from_ui() -> None:
+    st.session_state.device_mode = st.session_state.ui_device_mode
+
+
+
+def start_timer() -> None:
+    if not st.session_state.timer_running:
+        st.session_state.start_time = time.time()
+        st.session_state.timer_running = True
+
+
+
+def stop_timer() -> None:
+    if st.session_state.timer_running:
+        st.session_state.elapsed_before_run = current_elapsed_seconds()
+        st.session_state.start_time = None
+        st.session_state.timer_running = False
+
+
+
+def reset_timer() -> None:
+    st.session_state.timer_running = False
+    st.session_state.start_time = None
+    st.session_state.elapsed_before_run = 0
+
+
+
+@st.fragment(run_every="1s" if st.session_state.timer_running else None)
+def render_live_clock_bar() -> None:
+    c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 1, 1])
+    c1.metric("Live klok", current_time_str())
+    c2.button("Start", use_container_width=True, on_click=start_timer)
+    c3.button("Stop", use_container_width=True, on_click=stop_timer)
+    c4.button("Reset klok", use_container_width=True, on_click=reset_timer)
+    c5.button("Volgend kwart", use_container_width=True, on_click=next_quarter)
+
+
+
 def render_setup_bar() -> None:
     if "ui_team_name" not in st.session_state:
         st.session_state.ui_team_name = st.session_state.team_name
@@ -1518,8 +1577,10 @@ def render_setup_bar() -> None:
         st.session_state.ui_quarter = st.session_state.quarter
     if "ui_match_id" not in st.session_state:
         st.session_state.ui_match_id = st.session_state.match_id
+    if "ui_device_mode" not in st.session_state:
+        st.session_state.ui_device_mode = st.session_state.device_mode
 
-    top1, top2, top3, top4 = st.columns([1.2, 1.2, 0.7, 1.0])
+    top1, top2, top3, top4, top5 = st.columns([1.05, 1.05, 0.65, 0.95, 0.9])
     with top1:
         st.text_input(
             "Naam eigen team",
@@ -1544,6 +1605,13 @@ def render_setup_bar() -> None:
             "Wedstrijd-ID",
             key="ui_match_id",
             on_change=sync_match_id_from_ui,
+        )
+    with top5:
+        st.selectbox(
+            "Versie",
+            ["MacBook", "iPad", "iPhone"],
+            key="ui_device_mode",
+            on_change=sync_device_mode_from_ui,
         )
 
     b1, b2 = st.columns(2)
@@ -1590,13 +1658,20 @@ def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
     for row_i, row in enumerate(rows):
         cols = st.columns(len(row))
         for col_i, event_name in enumerate(row):
-            if cols[col_i].button(event_name, key=f"{prefix}_{row_i}_{col_i}", use_container_width=True):
+            if cols[col_i].button(
+                event_name,
+                key=f"{prefix}_{row_i}_{col_i}",
+                use_container_width=True,
+            ):
                 start_smart_tag(team_name, event_name)
                 st.rerun()
+
+    st.caption("Cirkelentry vraagt zonekeuze. Andere events worden direct opgeslagen.")
 
 
 
 def render_live_screen(df: pd.DataFrame) -> None:
+    device_mode = st.session_state.device_mode
     render_match_scorebar()
 
     a1, a2, a3, a4 = st.columns(4)
@@ -1610,10 +1685,71 @@ def render_live_screen(df: pd.DataFrame) -> None:
         reset_all()
         st.rerun()
     if a4.button("⏱ Reset klok", use_container_width=True):
-        st.session_state.timer_running = False
-        st.session_state.start_time = None
-        st.session_state.elapsed_before_run = 0
+        reset_timer()
         st.rerun()
+
+    if device_mode == "iPhone":
+        st.markdown("### 📱 iPhone coachmodus")
+        st.caption("Compacte live invoer met één kolom, snelle teamkeuze en korte eventfeed.")
+
+        p1, p2 = st.columns(2)
+        with p1:
+            st.metric("Tijd", current_time_str())
+        with p2:
+            st.metric("Kwart", st.session_state.quarter)
+
+        team_choice = st.radio(
+            "Kies team",
+            [st.session_state.team_name, st.session_state.opponent_name],
+            horizontal=True,
+            key="iphone_team_choice",
+        )
+
+        active_color = TEAM_BLUE if team_choice == st.session_state.team_name else OPP_RED
+        active_prefix = "iphone_team" if team_choice == st.session_state.team_name else "iphone_opp"
+        render_smart_tag_panel(team_choice, active_prefix, active_color)
+
+        if st.session_state.pending_event and st.session_state.pending_team == team_choice:
+            st.info(f"Kies nu de zone voor: {st.session_state.pending_event}")
+
+        q1, q2 = st.columns(2)
+        if q1.button("Goal team", use_container_width=True, key="iphone_goal_team"):
+            add_smart_event(st.session_state.team_name, "Goal")
+        if q2.button("Goal tegen", use_container_width=True, key="iphone_goal_opp"):
+            add_smart_event(st.session_state.opponent_name, "Goal")
+
+        st.markdown("### Laatste events")
+        render_event_feed(df, max_items=5)
+
+        if not df.empty:
+            st.markdown("### Focus nu")
+            insight_cards = get_insight_cards(df)
+            colors = ["green", "orange"]
+            for i, card in enumerate(insight_cards[:2]):
+                render_info_card(card["title"], card["value"], card["subtitle"], colors[i])
+        return
+
+    if device_mode == "MacBook":
+        left, mid, right = st.columns([1.05, 1.05, 0.9])
+        with left:
+            render_smart_tag_panel(st.session_state.team_name, "team", TEAM_BLUE)
+        with mid:
+            render_smart_tag_panel(st.session_state.opponent_name, "opp", OPP_RED)
+        with right:
+            st.markdown("### Live inzichten")
+            insight_cards = get_insight_cards(df)
+            colors = ["green", "orange", "blue", "red"]
+            for i, card in enumerate(insight_cards):
+                render_info_card(card["title"], card["value"], card["subtitle"], colors[i])
+
+        b1, b2 = st.columns([1.1, 1.2])
+        with b1:
+            st.markdown("### Laatste events")
+            render_event_feed(df, max_items=10)
+        with b2:
+            st.markdown("### Match timeline")
+            render_timeline(df)
+        return
 
     left, right = st.columns(2)
     with left:
