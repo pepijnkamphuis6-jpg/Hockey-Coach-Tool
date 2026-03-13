@@ -633,7 +633,7 @@ def generate_halftime_report(df: pd.DataFrame) -> str:
     if not action:
         action.append("Huidige afspraken vasthouden en details blijven monitoren.")
 
-    txt = "RUSTANALYSE
+    txt = "RUSTANALYSE\n\n"
 
 "
     txt += "Sterk:
