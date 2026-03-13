@@ -1030,4 +1030,4 @@ def render_timeline(df: pd.DataFrame) -> None:
     timeline_df["seconds"] = timeline_df["time"].astype(str).apply(parse_mmss)
     timeline_df = timeline_df[timeline_df["event"].isin(["Cirkelentry", "Schot", "Goal"])]
     if timeline_df.empty:
-        st.info("
+    st.info("Nog geen entry-, schot- of goal-events voor de timeline.")
