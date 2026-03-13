@@ -735,6 +735,204 @@ def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
         st.markdown(html, unsafe_allow_html=True)
 
 # --------------------------------------------------
+# Timeline / field helpers
+# --------------------------------------------------
+def render_timeline(df: pd.DataFrame) -> None:
+    if df.empty:
+        st.info("Nog geen timeline beschikbaar.")
+        return
+
+    timeline_df = df.copy()
+    timeline_df["seconds"] = timeline_df["time"].astype(str).apply(parse_mmss)
+    timeline_df = timeline_df[timeline_df["event"].isin(["Cirkelentry", "Schot", "Goal"])]
+
+    if timeline_df.empty:
+        st.info("Nog geen entry-, schot- of goal-events voor de timeline.")
+        return
+
+    event_symbol = {"Cirkelentry": "E", "Schot": "S", "Goal": "G"}
+    timeline_df["marker"] = timeline_df["event"].map(event_symbol)
+    timeline_df = timeline_df.sort_values(["quarter", "seconds"])
+
+    rows = []
+    for q in QUARTERS:
+        qdf = timeline_df[timeline_df["quarter"] == q]
+        if qdf.empty:
+            continue
+        markers = "   ".join([f"{r['marker']} {r['time']}" for _, r in qdf.head(12).iterrows()])
+        rows.append({"Kwart": q, "Timeline": markers})
+
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+
+def render_heatmap_card(title: str, count: int, pct: float, alpha_value: float) -> None:
+    html = dedent(
+        f"""
+        <div style="background: rgba(37,99,235,{alpha_value}); border: 1px solid {CARD_BORDER}; border-radius: 18px; padding: 16px; min-height: 140px;">
+            <div style="font-weight:800; font-size:18px; color:{TEXT_MAIN};">{title}</div>
+            <div style="font-size:40px; font-weight:900; line-height:1.1; color:{TEXT_MAIN};">{count}</div>
+            <div style="font-size:18px; color:{TEXT_MAIN};">{pct:.0f}%</div>
+        </div>
+        """
+    ).strip()
+    st.markdown(html, unsafe_allow_html=True)
+
+
+
+def heatmap_alpha(value: int, max_value: int) -> float:
+    base = 0.10
+    if max_value <= 0:
+        return base
+    return min(0.55, base + (value / max_value) * 0.42)
+
+
+
+def build_field_component_html(
+    layer_counts: dict[str, dict[str, int]],
+    selected_team: str,
+    selected_quarter: str,
+    selected_layers: list[str],
+    dominant_text: str,
+    total: int,
+) -> str:
+    zone_x_map = {"Linksvoor": "20%", "Middenvoor": "50%", "Rechtsvoor": "80%"}
+    event_y_map = {"Cirkelentry": "68%", "Schot": "48%", "Goal": "20%"}
+    dot_class_map = {"Cirkelentry": "overlay-entry", "Schot": "overlay-shot", "Goal": "overlay-goal"}
+    offsets = {
+        "Linksvoor": [-24, -14, -4, 6, 16, 26, -30, 32, 0, 12],
+        "Middenvoor": [-28, -16, -6, 6, 18, 28, -34, 34, 0, 12],
+        "Rechtsvoor": [-24, -14, -4, 6, 16, 26, -30, 32, 0, 12],
+    }
+
+    overlay_html = []
+    for event_name in selected_layers:
+        zone_counts = layer_counts.get(event_name, {})
+        for zone in FIELD_ZONES:
+            count = zone_counts.get(zone, 0)
+            for i in range(count):
+                offset = offsets[zone][i % len(offsets[zone])]
+                base_y = event_y_map.get(event_name, "60%")
+                dot_class = dot_class_map.get(event_name, "overlay-entry")
+                overlay_html.append(
+                    f'<div class="overlay-dot {dot_class}" style="left:{zone_x_map[zone]}; top:calc({base_y} + {offset}px); transform:translate(-50%, -50%);"></div>'
+                )
+
+    layers_text = " • ".join(selected_layers) if selected_layers else "Geen lagen"
+    return f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+html, body {{ margin:0; padding:0; background:transparent; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:{TEXT_MAIN}; }}
+.field-wrap {{ background:{CARD_BG}; border:1px solid {CARD_BORDER}; border-radius:24px; padding:18px; box-shadow:0 10px 28px rgba(15,23,42,0.05); }}
+.toprow {{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }}
+.title {{ font-size:20px; font-weight:900; color:{TEXT_MAIN}; }}
+.sub {{ font-size:13px; color:{TEXT_SUB}; }}
+.half-field {{ position:relative; width:100%; min-height:520px; border-radius:24px; overflow:hidden; background:linear-gradient(180deg, #bbf7d0 0%, #86efac 100%); border:4px solid #166534; box-sizing:border-box; }}
+.zone-panel {{ position:absolute; bottom:4%; height:48%; opacity:0.18; border-top:2px dashed rgba(255,255,255,0.72); }}
+.zone-left {{ left:6%; width:29.33%; background:#60a5fa; }}
+.zone-mid {{ left:35.33%; width:29.33%; background:#facc15; }}
+.zone-right {{ left:64.66%; width:29.33%; background:#fb7185; }}
+.zone-label {{ position:absolute; bottom:54%; font-size:13px; font-weight:800; color:#14532d; background:rgba(255,255,255,0.82); padding:6px 10px; border-radius:999px; }}
+.zl {{ left:12%; }} .zm {{ left:43%; }} .zr {{ left:74%; }}
+.field-line {{ position:absolute; left:6%; right:6%; border-color:rgba(255,255,255,0.95); }}
+.back-line {{ bottom:4%; border-top:4px solid rgba(255,255,255,0.95); }}
+.circle-line {{ bottom:4%; left:18%; right:18%; height:34%; border:4px solid rgba(255,255,255,0.95); border-bottom:none; border-top-left-radius:500px; border-top-right-radius:500px; box-sizing:border-box; }}
+.spot-line {{ position:absolute; width:12px; height:12px; border-radius:999px; background:rgba(255,255,255,0.95); left:50%; transform:translateX(-50%); bottom:24%; }}
+.overlay-dot {{ position:absolute; width:18px; height:18px; border-radius:999px; border:3px solid white; box-shadow:0 0 0 3px rgba(15,23,42,0.12); box-sizing:border-box; }}
+.overlay-entry {{ background:#2563eb; }}
+.overlay-shot {{ background:#f59e0b; }}
+.overlay-goal {{ background:#dc2626; width:22px; height:22px; }}
+.legend-row {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }}
+.legend-item {{ display:inline-flex; align-items:center; gap:8px; background:#f8fafc; border:1px solid #e2e8f0; padding:8px 12px; border-radius:999px; font-size:13px; font-weight:700; color:{TEXT_SUB}; }}
+.legend-dot {{ width:14px; height:14px; border-radius:999px; display:inline-block; }}
+.bottom {{ margin-top:14px; color:{TEXT_SUB}; font-size:14px; }}
+</style>
+</head>
+<body>
+<div class="field-wrap">
+  <div class="toprow">
+    <div class="title">Veld • {selected_team} • {selected_quarter}</div>
+    <div class="sub">Lagen: {layers_text}</div>
+  </div>
+  <div class="half-field">
+    <div class="zone-panel zone-left"></div>
+    <div class="zone-panel zone-mid"></div>
+    <div class="zone-panel zone-right"></div>
+    <div class="zone-label zl">Linksvoor</div>
+    <div class="zone-label zm">Middenvoor</div>
+    <div class="zone-label zr">Rechtsvoor</div>
+    <div class="field-line back-line"></div>
+    <div class="field-line circle-line"></div>
+    <div class="spot-line"></div>
+    {''.join(overlay_html)}
+  </div>
+  <div class="legend-row">
+    <div class="legend-item"><span class="legend-dot" style="background:#2563eb;"></span> Cirkelentry</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span> Schot</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#dc2626;"></span> Goal</div>
+  </div>
+  <div class="bottom">Dominante zone: <strong>{dominant_text}</strong> • totaal geselecteerde events: <strong>{total}</strong></div>
+</div>
+</body>
+</html>
+""".strip()
+
+
+
+def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: str, selected_layers: list[str]) -> None:
+    if df.empty:
+        st.info("Nog geen data voor veldvisualisatie.")
+        return
+
+    view_df = df[df["team"] == selected_team].copy()
+    if selected_quarter != "Alles":
+        view_df = view_df[view_df["quarter"] == selected_quarter]
+
+    layer_counts: dict[str, dict[str, int]] = {}
+    zone_totals = {"Linksvoor": 0, "Middenvoor": 0, "Rechtsvoor": 0}
+
+    for event_name in selected_layers:
+        sub_df = view_df[view_df["event"] == event_name]
+        if event_name == "Cirkelentry":
+            sub_df = sub_df[sub_df["zone"].isin(FIELD_ZONES)]
+            counts = {
+                "Linksvoor": len(sub_df[sub_df["zone"] == "Linksvoor"]),
+                "Middenvoor": len(sub_df[sub_df["zone"] == "Middenvoor"]),
+                "Rechtsvoor": len(sub_df[sub_df["zone"] == "Rechtsvoor"]),
+            }
+        else:
+            counts = {"Linksvoor": 0, "Middenvoor": len(sub_df), "Rechtsvoor": 0}
+
+        layer_counts[event_name] = counts
+        for zone in FIELD_ZONES:
+            zone_totals[zone] += counts[zone]
+
+    total = sum(zone_totals.values())
+    zone_pcts = {k: percent(v, total) for k, v in zone_totals.items()}
+    dominant_text = max(zone_totals.items(), key=lambda x: x[1])[0].lower() if total > 0 else "geen data"
+
+    html = build_field_component_html(layer_counts, selected_team, selected_quarter, selected_layers, dominant_text, total)
+    components.html(html, height=720, scrolling=False)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Linksvoor", zone_totals["Linksvoor"])
+    c2.metric("Middenvoor", zone_totals["Middenvoor"])
+    c3.metric("Rechtsvoor", zone_totals["Rechtsvoor"])
+
+    max_count = max(zone_totals.values()) if total > 0 else 1
+    h1, h2, h3 = st.columns(3)
+    with h1:
+        render_heatmap_card("Linksvoor", zone_totals["Linksvoor"], zone_pcts["Linksvoor"], heatmap_alpha(zone_totals["Linksvoor"], max_count))
+    with h2:
+        render_heatmap_card("Middenvoor", zone_totals["Middenvoor"], zone_pcts["Middenvoor"], heatmap_alpha(zone_totals["Middenvoor"], max_count))
+    with h3:
+        render_heatmap_card("Rechtsvoor", zone_totals["Rechtsvoor"], zone_pcts["Rechtsvoor"], heatmap_alpha(zone_totals["Rechtsvoor"], max_count))
+
+# --------------------------------------------------
 # Live / analysis / field / report screens
 # --------------------------------------------------
 def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
