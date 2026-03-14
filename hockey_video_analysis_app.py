@@ -21,7 +21,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V7.4 Final",
+    page_title="Hockey Coach Analyse Tool V8.1",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -82,11 +82,14 @@ PAGE_BG_1 = "#f8fafc"
 PAGE_BG_2 = "#eef2ff"
 
 # --------------------------------------------------
-# Helpers
+# Core helpers
 # --------------------------------------------------
 def current_elapsed_seconds() -> int:
     if st.session_state.timer_running and st.session_state.start_time is not None:
-        return int(st.session_state.elapsed_before_run + (time.time() - st.session_state.start_time))
+        return int(
+            st.session_state.elapsed_before_run
+            + (time.time() - st.session_state.start_time)
+        )
     return int(st.session_state.elapsed_before_run)
 
 
@@ -122,7 +125,17 @@ def normalize_event_row(row: dict) -> dict:
 
 
 def build_df() -> pd.DataFrame:
-    cols = ["id", "match_id", "quarter", "time", "team", "event", "zone", "notes", "created_at"]
+    cols = [
+        "id",
+        "match_id",
+        "quarter",
+        "time",
+        "team",
+        "event",
+        "zone",
+        "notes",
+        "created_at",
+    ]
     if not st.session_state.events:
         return pd.DataFrame(columns=cols)
     df = pd.DataFrame(st.session_state.events)
@@ -132,7 +145,12 @@ def build_df() -> pd.DataFrame:
     return df[cols]
 
 
-def count_events(df: pd.DataFrame, team: str, event: str, quarter: str | None = None) -> int:
+def count_events(
+    df: pd.DataFrame,
+    team: str,
+    event: str,
+    quarter: str | None = None,
+) -> int:
     if df.empty:
         return 0
     mask = (df["team"] == team) & (df["event"] == event)
@@ -141,7 +159,12 @@ def count_events(df: pd.DataFrame, team: str, event: str, quarter: str | None = 
     return int(mask.sum())
 
 
-def dominant_zone_text(df: pd.DataFrame, team: str, quarter: str | None = None, event: str = "Cirkelentry") -> str:
+def dominant_zone_text(
+    df: pd.DataFrame,
+    team: str,
+    quarter: str | None = None,
+    event: str = "Cirkelentry",
+) -> str:
     if df.empty:
         return "onbekend"
     mask = (df["team"] == team) & (df["event"] == event)
@@ -175,7 +198,7 @@ def next_quarter() -> None:
     st.session_state.ui_quarter = next_value
 
 # --------------------------------------------------
-# Analysis
+# Analysis helpers
 # --------------------------------------------------
 def build_kpi_summary(df: pd.DataFrame) -> dict:
     team = st.session_state.team_name
@@ -191,7 +214,6 @@ def build_kpi_summary(df: pd.DataFrame) -> dict:
     team_counters_against = count_events(df, team, "Counter tegen na balverlies")
     team_press_success = count_events(df, team, "Press succes")
     team_build_fail = count_events(df, team, "Opbouw mislukt")
-
     return {
         "team_entries": team_entries,
         "opp_entries": opp_entries,
@@ -225,12 +247,47 @@ def generate_tactical_patterns(df: pd.DataFrame) -> list[str]:
         top_zone = zone_counts.idxmax()
         top_pct = percent(zone_counts.max(), total)
         if top_pct >= 50:
-            patterns.append(f"{top_pct:.0f}% van de cirkelentries van {team} kwam via {str(top_zone).lower()}.")
+            patterns.append(
+                f"{top_pct:.0f}% van de cirkelentries van {team} kwam via {str(top_zone).lower()}."
+            )
     if count_events(df, team, "Opbouw mislukt") >= 3:
         patterns.append(f"{team} heeft meerdere mislukte opbouwmomenten onder druk.")
     if count_events(df, team, "Press succes") >= 3:
         patterns.append(f"De press van {team} levert herhaald succes op.")
     return patterns
+
+
+def detect_momentum(df: pd.DataFrame) -> list[str]:
+    if df.empty:
+        return []
+    moments = []
+    entries = df[df["event"] == "Cirkelentry"].copy()
+    if len(entries) >= 3:
+        entries["sec"] = entries["time"].apply(parse_mmss)
+        entries = entries.sort_values("sec")
+        for i in range(len(entries) - 2):
+            if entries.iloc[i + 2]["sec"] - entries.iloc[i]["sec"] <= 120:
+                moments.append("3 cirkelentries binnen 2 minuten → sterke aanvalsfase")
+                break
+    if (
+        count_events(df, st.session_state.team_name, "Turnover eigen helft") >= 2
+        and count_events(df, st.session_state.team_name, "Counter tegen na balverlies") >= 1
+    ):
+        moments.append("Balverlies eigen helft leidt tot counters tegen")
+    return moments
+
+
+def build_entry_heatmap(df: pd.DataFrame) -> pd.DataFrame:
+    entries = df[df["event"] == "Cirkelentry"]
+    zones = {
+        "Linksvoor": len(entries[entries["zone"] == "Linksvoor"]),
+        "Middenvoor": len(entries[entries["zone"] == "Middenvoor"]),
+        "Rechtsvoor": len(entries[entries["zone"] == "Rechtsvoor"]),
+    }
+    total = sum(zones.values())
+    return pd.DataFrame(
+        [{"zone": z, "entries": v, "pct": round(percent(v, total), 1)} for z, v in zones.items()]
+    )
 
 
 def build_report_sections(df: pd.DataFrame) -> dict:
@@ -298,36 +355,7 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
         lines.extend([f"- {p}" for p in patterns])
     else:
         lines.append("- Nog geen duidelijke patronen zichtbaar.")
-    return "
-".join(lines)
-
-
-def detect_momentum(df: pd.DataFrame) -> list[str]:
-    if df.empty:
-        return []
-    moments = []
-    entries = df[df["event"] == "Cirkelentry"].copy()
-    if len(entries) >= 3:
-        entries["sec"] = entries["time"].apply(parse_mmss)
-        entries = entries.sort_values("sec")
-        for i in range(len(entries) - 2):
-            if entries.iloc[i + 2]["sec"] - entries.iloc[i]["sec"] <= 120:
-                moments.append("3 cirkelentries binnen 2 minuten → sterke aanvalsfase")
-                break
-    if count_events(df, st.session_state.team_name, "Turnover eigen helft") >= 2 and count_events(df, st.session_state.team_name, "Counter tegen na balverlies") >= 1:
-        moments.append("Balverlies eigen helft leidt tot counters tegen")
-    return moments
-
-
-def build_entry_heatmap(df: pd.DataFrame) -> pd.DataFrame:
-    entries = df[df["event"] == "Cirkelentry"]
-    zones = {
-        "Linksvoor": len(entries[entries["zone"] == "Linksvoor"]),
-        "Middenvoor": len(entries[entries["zone"] == "Middenvoor"]),
-        "Rechtsvoor": len(entries[entries["zone"] == "Rechtsvoor"]),
-    }
-    total = sum(zones.values())
-    return pd.DataFrame([{"zone": z, "entries": v, "pct": round(percent(v, total), 1)} for z, v in zones.items()])
+    return "\n".join(lines)
 
 
 def generate_halftime_report(df: pd.DataFrame) -> str:
@@ -353,22 +381,11 @@ def generate_halftime_report(df: pd.DataFrame) -> str:
         risk.append("Nog geen groot dominant risico zichtbaar.")
     if not action:
         action.append("Huidige afspraken vasthouden en details blijven monitoren.")
-    txt = "RUSTANALYSE
 
-"
-    txt += "Sterk:
-" + "
-".join(f"- {x}" for x in strong)
-    txt += "
-
-Risico:
-" + "
-".join(f"- {x}" for x in risk)
-    txt += "
-
-Actie:
-" + "
-".join(f"- {x}" for x in action)
+    txt = "RUSTANALYSE\n\n"
+    txt += "Sterk:\n" + "\n".join(f"- {x}" for x in strong)
+    txt += "\n\nRisico:\n" + "\n".join(f"- {x}" for x in risk)
+    txt += "\n\nActie:\n" + "\n".join(f"- {x}" for x in action)
     return txt
 
 
@@ -379,7 +396,7 @@ def refresh_derived_state() -> None:
     st.session_state.last_sync_count = len(df)
 
 # --------------------------------------------------
-# Exports
+# Export helpers
 # --------------------------------------------------
 def export_pdf_report(text: str) -> bytes:
     if not REPORTLAB_AVAILABLE:
@@ -388,8 +405,7 @@ def export_pdf_report(text: str) -> bytes:
     styles = getSampleStyleSheet()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
     story = []
-    for line in text.split("
-"):
+    for line in text.split("\n"):
         safe = line if line.strip() else " "
         safe = safe.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         story.append(Paragraph(safe, styles["Normal"]))
@@ -410,7 +426,7 @@ def export_excel(df: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 # --------------------------------------------------
-# Supabase
+# Optional Supabase
 # --------------------------------------------------
 def get_supabase_client():
     if create_client is None:
@@ -460,68 +476,7 @@ def sync_from_cloud() -> None:
     st.session_state.last_sync_time = time.strftime("%H:%M:%S")
 
 # --------------------------------------------------
-# Event actions
-# --------------------------------------------------
-def add_event(team: str, event: str, zone: str = "", notes: str = "") -> None:
-    event_row = normalize_event_row({
-        "id": str(uuid.uuid4()),
-        "match_id": st.session_state.match_id,
-        "quarter": st.session_state.quarter,
-        "time": current_time_str(),
-        "team": team,
-        "event": event,
-        "zone": zone,
-        "notes": notes,
-        "created_at": time.time(),
-    })
-    st.session_state.events.append(event_row)
-    if cloud_enabled():
-        save_event_to_cloud(event_row)
-    refresh_derived_state()
-
-
-def clear_pending_tag() -> None:
-    st.session_state.pending_event = None
-    st.session_state.pending_team = None
-
-
-def add_smart_event(team: str, event: str, zone: str = "") -> None:
-    add_event(team, event, zone)
-    clear_pending_tag()
-
-
-def start_smart_tag(team: str, event: str) -> None:
-    if event in EVENT_NEEDS_ZONE:
-        st.session_state.pending_event = event
-        st.session_state.pending_team = team
-    else:
-        add_smart_event(team, event)
-
-
-def remove_last_event() -> None:
-    if not st.session_state.events:
-        return
-    if cloud_enabled():
-        delete_last_event_cloud()
-        sync_from_cloud()
-    else:
-        st.session_state.events.pop()
-        refresh_derived_state()
-
-
-def reset_all() -> None:
-    if cloud_enabled():
-        reset_match_cloud()
-    st.session_state.events = []
-    st.session_state.score_team = 0
-    st.session_state.score_opponent = 0
-    st.session_state.auto_notes = ""
-    st.session_state.halftime_report = ""
-    st.session_state.confirm_reset = False
-    clear_pending_tag()
-
-# --------------------------------------------------
-# Header / setup / timer
+# UI callbacks / timer
 # --------------------------------------------------
 def sync_team_name_from_ui() -> None:
     st.session_state.team_name = st.session_state.ui_team_name
@@ -571,23 +526,53 @@ def render_live_clock_bar() -> None:
     c4.button("Reset klok", use_container_width=True, on_click=reset_timer)
     c5.button("Volgend kwart", use_container_width=True, on_click=next_quarter)
 
+# --------------------------------------------------
+# Styling / header
+# --------------------------------------------------
+def inject_custom_css() -> None:
+    css = dedent(
+        f"""
+        <style>
+        .stApp {{ background: linear-gradient(180deg, {PAGE_BG_1} 0%, {PAGE_BG_2} 100%); }}
+        .block-container {{ padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1500px; }}
+        div.stButton > button {{ border-radius: 16px; border: 1px solid #dbeafe; font-weight: 800; min-height: 48px; }}
+        .safe-card {{ background: {CARD_BG}; border: 1px solid {CARD_BORDER}; border-radius: 22px; padding: 18px; box-shadow: 0 10px 28px rgba(15,23,42,0.05); min-height: 140px; height: 100%; }}
+        .safe-card-title {{ font-size: 13px; color: {TEXT_SUB}; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px; }}
+        .safe-card-value {{ font-size: 34px; font-weight: 900; color: {TEXT_MAIN}; line-height: 1.05; margin-bottom: 10px; }}
+        .safe-card-sub {{ color: {TEXT_SUB}; font-size: 14px; line-height: 1.4; }}
+        .accent-blue {{ border-top: 5px solid {TEAM_BLUE}; }}
+        .accent-red {{ border-top: 5px solid {OPP_RED}; }}
+        .accent-green {{ border-top: 5px solid {SUCCESS_GREEN}; }}
+        .accent-orange {{ border-top: 5px solid {WARNING_ORANGE}; }}
+        .mini-feed {{ background: {CARD_BG}; border: 1px solid {CARD_BORDER}; border-radius: 18px; padding: 12px 14px; margin-bottom: 10px; box-shadow: 0 8px 22px rgba(15,23,42,0.04); }}
+        .pill {{ display:inline-block; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; margin-right: 6px; margin-top: 6px; }}
+        .pill-blue {{ background:#dbeafe; color:#1d4ed8; }}
+        .pill-red {{ background:#fee2e2; color:#b91c1c; }}
+        .pill-green {{ background:#dcfce7; color:#15803d; }}
+        .pill-gray {{ background:#e2e8f0; color:#334155; }}
+        .hero {{ background: linear-gradient(135deg, #eff6ff 0%, #ffffff 50%, #eef2ff 100%); border: 1px solid #dbeafe; border-radius: 24px; padding: 20px; margin-bottom: 14px; box-shadow: 0 12px 28px rgba(15,23,42,0.05); }}
+        .hero-top {{ display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }}
+        .hero-title {{ font-size: 28px; font-weight: 900; color: {TEXT_MAIN}; }}
+        .hero-sub {{ color: {TEXT_SUB}; font-size: 14px; margin-top: 6px; }}
+        .status-chip {{ display:inline-flex; align-items:center; gap:8px; background:#ffffff; border:1px solid #dbeafe; border-radius:999px; padding:8px 12px; font-size:13px; font-weight:800; color:{TEXT_SUB}; }}
+        </style>
+        """
+    ).strip()
+    st.markdown(css, unsafe_allow_html=True)
 
-def render_setup_bar() -> None:
-    top1, top2, top3, top4, top5 = st.columns([1.05, 1.05, 0.65, 0.95, 0.9])
-    with top1:
-        st.text_input("Naam eigen team", key="ui_team_name", on_change=sync_team_name_from_ui)
-    with top2:
-        st.text_input("Naam tegenstander", key="ui_opponent_name", on_change=sync_opponent_name_from_ui)
-    with top3:
-        st.selectbox("Kwart", QUARTERS, key="ui_quarter", on_change=sync_quarter_from_ui)
-    with top4:
-        st.text_input("Wedstrijd-ID", key="ui_match_id", on_change=sync_match_id_from_ui)
-    with top5:
-        st.selectbox("Versie", ["MacBook", "iPad", "iPhone"], key="ui_device_mode", on_change=sync_device_mode_from_ui)
-    b1, b2 = st.columns(2)
-    b1.button("Nieuwe ID", use_container_width=True, on_click=set_new_match_id)
-    b2.button("Sync", use_container_width=True, on_click=sync_from_cloud)
-    render_live_clock_bar()
+
+def render_info_card(title: str, value: str, subtitle: str, accent: str) -> None:
+    accent_class = {"blue": "accent-blue", "red": "accent-red", "green": "accent-green", "orange": "accent-orange"}.get(accent, "accent-blue")
+    html = dedent(
+        f"""
+        <div class="safe-card {accent_class}">
+            <div class="safe-card-title">{title}</div>
+            <div class="safe-card-value">{value}</div>
+            <div class="safe-card-sub">{subtitle}</div>
+        </div>
+        """
+    ).strip()
+    st.markdown(html, unsafe_allow_html=True)
 
 
 def render_hero_header() -> None:
@@ -597,7 +582,7 @@ def render_hero_header() -> None:
     <div class="hero">
         <div class="hero-top">
             <div>
-                <div class="hero-title">🏑 Hockey Coach Analyse Tool V7.4 Final</div>
+                <div class="hero-title">🏑 Hockey Coach Analyse Tool V8.1</div>
                 <div class="hero-sub">Stabiele versie met live tagging, device-modi, momentum en coachrapport.</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -634,8 +619,26 @@ def render_navigation() -> None:
             st.session_state.active_screen = screen
             st.rerun()
 
+
+def render_setup_bar() -> None:
+    top1, top2, top3, top4, top5 = st.columns([1.05, 1.05, 0.65, 0.95, 0.9])
+    with top1:
+        st.text_input("Naam eigen team", key="ui_team_name", on_change=sync_team_name_from_ui)
+    with top2:
+        st.text_input("Naam tegenstander", key="ui_opponent_name", on_change=sync_opponent_name_from_ui)
+    with top3:
+        st.selectbox("Kwart", QUARTERS, key="ui_quarter", on_change=sync_quarter_from_ui)
+    with top4:
+        st.text_input("Wedstrijd-ID", key="ui_match_id", on_change=sync_match_id_from_ui)
+    with top5:
+        st.selectbox("Versie", ["MacBook", "iPad", "iPhone"], key="ui_device_mode", on_change=sync_device_mode_from_ui)
+    b1, b2 = st.columns(2)
+    b1.button("Nieuwe ID", use_container_width=True, on_click=set_new_match_id)
+    b2.button("Sync", use_container_width=True, on_click=sync_from_cloud)
+    render_live_clock_bar()
+
 # --------------------------------------------------
-# Feed / cards
+# Feed helpers
 # --------------------------------------------------
 def get_event_pill_class(event_name: str) -> str:
     if event_name == "Goal":
@@ -674,7 +677,9 @@ def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
         ).strip()
         st.markdown(html, unsafe_allow_html=True)
 
-
+# --------------------------------------------------
+# Insight helpers
+# --------------------------------------------------
 def get_insight_cards(df: pd.DataFrame) -> list[dict]:
     if df.empty:
         return [
@@ -721,7 +726,7 @@ def get_insight_cards(df: pd.DataFrame) -> list[dict]:
     ]
 
 # --------------------------------------------------
-# Timeline / field
+# Timeline / field helpers
 # --------------------------------------------------
 def render_timeline(df: pd.DataFrame) -> None:
     if df.empty:
@@ -856,7 +861,7 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
     view_df = df[df["team"] == selected_team].copy()
     if selected_quarter != "Alles":
         view_df = view_df[view_df["quarter"] == selected_quarter]
-    layer_counts = {}
+    layer_counts: dict[str, dict[str, int]] = {}
     zone_totals = {"Linksvoor": 0, "Middenvoor": 0, "Rechtsvoor": 0}
     for event_name in selected_layers:
         sub_df = view_df[view_df["event"] == event_name]
@@ -875,7 +880,8 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
     total = sum(zone_totals.values())
     zone_pcts = {k: percent(v, total) for k, v in zone_totals.items()}
     dominant_text = max(zone_totals.items(), key=lambda x: x[1])[0].lower() if total > 0 else "geen data"
-    components.html(build_field_component_html(layer_counts, selected_team, selected_quarter, selected_layers, dominant_text, total), height=720, scrolling=False)
+    html = build_field_component_html(layer_counts, selected_team, selected_quarter, selected_layers, dominant_text, total)
+    components.html(html, height=720, scrolling=False)
     c1, c2, c3 = st.columns(3)
     c1.metric("Linksvoor", zone_totals["Linksvoor"])
     c2.metric("Middenvoor", zone_totals["Middenvoor"])
@@ -890,10 +896,76 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
         render_heatmap_card("Rechtsvoor", zone_totals["Rechtsvoor"], zone_pcts["Rechtsvoor"], heatmap_alpha(zone_totals["Rechtsvoor"], max_count))
 
 # --------------------------------------------------
-# Tagging panels / screens
+# Event actions
+# --------------------------------------------------
+def add_event(team: str, event: str, zone: str = "", notes: str = "") -> None:
+    event_row = normalize_event_row(
+        {
+            "id": str(uuid.uuid4()),
+            "match_id": st.session_state.match_id,
+            "quarter": st.session_state.quarter,
+            "time": current_time_str(),
+            "team": team,
+            "event": event,
+            "zone": zone,
+            "notes": notes,
+            "created_at": time.time(),
+        }
+    )
+    st.session_state.events.append(event_row)
+    if cloud_enabled():
+        save_event_to_cloud(event_row)
+    refresh_derived_state()
+
+
+def clear_pending_tag() -> None:
+    st.session_state.pending_event = None
+    st.session_state.pending_team = None
+
+
+def add_smart_event(team: str, event: str, zone: str = "") -> None:
+    add_event(team, event, zone)
+    clear_pending_tag()
+
+
+def start_smart_tag(team: str, event: str) -> None:
+    if event in EVENT_NEEDS_ZONE:
+        st.session_state.pending_event = event
+        st.session_state.pending_team = team
+    else:
+        add_smart_event(team, event)
+
+
+def remove_last_event() -> None:
+    if not st.session_state.events:
+        return
+    if cloud_enabled():
+        delete_last_event_cloud()
+        sync_from_cloud()
+    else:
+        st.session_state.events.pop()
+        refresh_derived_state()
+
+
+def reset_all() -> None:
+    if cloud_enabled():
+        reset_match_cloud()
+    st.session_state.events = []
+    st.session_state.score_team = 0
+    st.session_state.score_opponent = 0
+    st.session_state.auto_notes = ""
+    st.session_state.halftime_report = ""
+    st.session_state.confirm_reset = False
+    clear_pending_tag()
+
+# --------------------------------------------------
+# Screens
 # --------------------------------------------------
 def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
-    st.markdown(f"<div style='background:{color};color:white;padding:12px 16px;border-radius:18px;font-weight:800;font-size:22px;margin-bottom:10px;text-align:center;'>{team_name}</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='background:{color};color:white;padding:12px 16px;border-radius:18px;font-weight:800;font-size:22px;margin-bottom:10px;text-align:center;'>{team_name}</div>",
+        unsafe_allow_html=True,
+    )
     if st.session_state.pending_event and st.session_state.pending_team == team_name:
         st.markdown(f"**Kies zone voor: {st.session_state.pending_event}**")
         z1, z2, z3 = st.columns(3)
@@ -958,7 +1030,12 @@ def render_live_screen(df: pd.DataFrame) -> None:
             st.metric("Tijd", current_time_str())
         with p2:
             st.metric("Kwart", st.session_state.quarter)
-        team_choice = st.radio("Kies team", [st.session_state.team_name, st.session_state.opponent_name], horizontal=True, key="iphone_team_choice")
+        team_choice = st.radio(
+            "Kies team",
+            [st.session_state.team_name, st.session_state.opponent_name],
+            horizontal=True,
+            key="iphone_team_choice",
+        )
         active_color = TEAM_BLUE if team_choice == st.session_state.team_name else OPP_RED
         active_prefix = "iphone_team" if team_choice == st.session_state.team_name else "iphone_opp"
         render_smart_tag_panel(team_choice, active_prefix, active_color)
@@ -1068,7 +1145,7 @@ def render_report_screen(df: pd.DataFrame) -> None:
     st.dataframe(df[["quarter", "time", "team", "event", "zone", "notes"]], use_container_width=True, hide_index=True)
 
 # --------------------------------------------------
-# Auto sync fragment
+# Auto sync
 # --------------------------------------------------
 @st.fragment(run_every="2s" if cloud_enabled() else None)
 def auto_sync_cloud():
