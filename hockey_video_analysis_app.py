@@ -87,6 +87,37 @@ VIDEO_TAGS = [
     "Positief voorbeeld",
     "Leerclip",
 ]
+VIDEO_URL_HINTS = ["http://", "https://"]
+
+
+# --------------------------------------------------
+# Video URL helper
+# --------------------------------------------------
+def is_probable_video_url(value: str) -> bool:
+    text = str(value).strip().lower()
+    if not text:
+        return False
+    return any(text.startswith(prefix) for prefix in VIDEO_URL_HINTS)
+
+
+# --------------------------------------------------
+# Constants vervolg
+# --------------------------------------------------
+
+    "Opbouw",
+    "Press",
+    "Restverdediging",
+    "Omschakeling aanval",
+    "Omschakeling verdediging",
+    "Cirkelentry",
+    "Cirkelbezetting",
+    "Verdedigende organisatie",
+    "Strafcorner",
+    "Goal voor",
+    "Goal tegen",
+    "Positief voorbeeld",
+    "Leerclip",
+]
 
 TEAM_BLUE = "#2563eb"
 OPP_RED = "#dc2626"
@@ -1282,20 +1313,60 @@ def render_report_screen(df: pd.DataFrame) -> None:
 
 def render_video_analysis_screen(df: pd.DataFrame) -> None:
     st.markdown("### 🎥 Beeldanalyse")
-    st.caption("Upload een wedstrijdvideo, registreer clips en voeg tactische notities toe voor nabespreking.")
+    st.caption("Upload een wedstrijdvideo of gebruik een videolink, registreer clips en voeg tactische notities toe voor nabespreking.")
 
-    video_file = st.file_uploader(
-        "Upload wedstrijdvideo",
-        type=["mp4", "mov", "m4v"],
-        key="match_video_uploader",
+    with st.expander("Grote videobestanden gebruiken"):
+        st.markdown(
+            """
+            **Lokaal in Streamlit verhogen:** maak een bestand `.streamlit/config.toml` met:
+
+            ```toml
+            [server]
+            maxUploadSize = 2000
+            ```
+
+            Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet beperkt; gebruik daar liever een videolink.
+            """
+        )
+
+    source_mode = st.radio(
+        "Videobron",
+        ["Bestand uploaden", "Videolink gebruiken"],
+        horizontal=True,
+        key="video_source_mode",
     )
 
-    if video_file is not None:
-        st.session_state.uploaded_video_name = video_file.name
-        st.video(video_file)
-        st.success(f"Video geladen: {video_file.name}")
+    active_video_name = ""
+
+    if source_mode == "Bestand uploaden":
+        video_file = st.file_uploader(
+            "Upload wedstrijdvideo",
+            type=["mp4", "mov", "m4v", "avi", "webm"],
+            key="match_video_uploader",
+        )
+
+        if video_file is not None:
+            st.session_state.uploaded_video_name = video_file.name
+            active_video_name = video_file.name
+            st.video(video_file)
+            st.success(f"Video geladen: {video_file.name}")
+        else:
+            st.info("Nog geen video geladen. Je kunt wel alvast clips handmatig registreren.")
     else:
-        st.info("Nog geen video geladen. Je kunt wel alvast clips handmatig registreren.")
+        video_url = st.text_input(
+            "Videolink",
+            placeholder="Plak hier bijvoorbeeld een directe mp4-link of een gedeelde videolink",
+            key="match_video_url_input",
+        )
+        if video_url and is_probable_video_url(video_url):
+            st.session_state.uploaded_video_name = video_url
+            active_video_name = video_url
+            st.video(video_url)
+            st.success("Videolink geladen.")
+        elif video_url:
+            st.warning("Deze link lijkt geen geldige videolink. Gebruik een volledige link die begint met http:// of https://.")
+        else:
+            st.info("Nog geen videolink ingevuld. Je kunt wel alvast clips handmatig registreren.")
 
     st.markdown("### Nieuwe clip toevoegen")
     f1, f2, f3 = st.columns(3)
@@ -1347,7 +1418,7 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
                 st.error("Eindtijd moet gelijk aan of later zijn dan starttijd.")
             else:
                 add_video_clip(
-                    video_name=st.session_state.uploaded_video_name or "geen video",
+                    video_name=active_video_name or st.session_state.uploaded_video_name or "geen video",
                     clip_title=clip_title,
                     tag=clip_tag,
                     team_focus=clip_team_focus,
@@ -1391,6 +1462,7 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
                 "clip_title",
                 "tag",
                 "team_focus",
+                "video_name",
                 "tactical_note",
                 "coaching_action",
                 "snapshot_name",
