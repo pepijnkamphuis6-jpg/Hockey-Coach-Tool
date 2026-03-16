@@ -21,7 +21,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V8.1",
+    page_title="Hockey Coach Analyse Tool V9.0",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -57,6 +57,9 @@ DEFAULTS = {
     "ui_quarter": "Q1",
     "ui_match_id": "wedstrijd-1",
     "ui_device_mode": "iPad",
+    "video_clips": [],
+    "uploaded_video_name": "",
+    "selected_video_note": "",
 }
 
 for key, value in DEFAULTS.items():
@@ -69,6 +72,21 @@ for key, value in DEFAULTS.items():
 QUARTERS = ["Q1", "Q2", "Q3", "Q4"]
 FIELD_ZONES = ["Linksvoor", "Middenvoor", "Rechtsvoor"]
 EVENT_NEEDS_ZONE = {"Cirkelentry"}
+VIDEO_TAGS = [
+    "Opbouw",
+    "Press",
+    "Restverdediging",
+    "Omschakeling aanval",
+    "Omschakeling verdediging",
+    "Cirkelentry",
+    "Cirkelbezetting",
+    "Verdedigende organisatie",
+    "Strafcorner",
+    "Goal voor",
+    "Goal tegen",
+    "Positief voorbeeld",
+    "Leerclip",
+]
 
 TEAM_BLUE = "#2563eb"
 OPP_RED = "#dc2626"
@@ -104,6 +122,11 @@ def parse_mmss(value: str) -> int:
         return int(mm) * 60 + int(ss)
     except Exception:
         return 0
+
+
+def format_seconds_to_mmss(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
 
 def percent(numerator: int, denominator: int) -> float:
@@ -396,6 +419,101 @@ def refresh_derived_state() -> None:
     st.session_state.last_sync_count = len(df)
 
 # --------------------------------------------------
+# Video / beeldanalyse helpers
+# --------------------------------------------------
+def build_clips_df() -> pd.DataFrame:
+    cols = [
+        "id",
+        "match_id",
+        "video_name",
+        "clip_title",
+        "tag",
+        "team_focus",
+        "quarter",
+        "start_sec",
+        "end_sec",
+        "start_time",
+        "end_time",
+        "duration_sec",
+        "tactical_note",
+        "coaching_action",
+        "created_at",
+        "snapshot_name",
+    ]
+    if not st.session_state.video_clips:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(st.session_state.video_clips)
+    for col in cols:
+        if col not in df.columns:
+            df[col] = ""
+    return df[cols]
+
+
+def add_video_clip(
+    video_name: str,
+    clip_title: str,
+    tag: str,
+    team_focus: str,
+    quarter: str,
+    start_sec: int,
+    end_sec: int,
+    tactical_note: str,
+    coaching_action: str,
+    snapshot_name: str = "",
+) -> None:
+    start_sec = max(0, int(start_sec))
+    end_sec = max(start_sec, int(end_sec))
+    row = {
+        "id": str(uuid.uuid4()),
+        "match_id": st.session_state.match_id,
+        "video_name": video_name,
+        "clip_title": clip_title.strip() or f"{tag} {format_seconds_to_mmss(start_sec)}",
+        "tag": tag,
+        "team_focus": team_focus,
+        "quarter": quarter,
+        "start_sec": start_sec,
+        "end_sec": end_sec,
+        "start_time": format_seconds_to_mmss(start_sec),
+        "end_time": format_seconds_to_mmss(end_sec),
+        "duration_sec": end_sec - start_sec,
+        "tactical_note": tactical_note.strip(),
+        "coaching_action": coaching_action.strip(),
+        "created_at": time.time(),
+        "snapshot_name": snapshot_name,
+    }
+    st.session_state.video_clips.append(row)
+
+
+def remove_last_clip() -> None:
+    if st.session_state.video_clips:
+        st.session_state.video_clips.pop()
+
+
+def generate_video_analysis_summary(clips_df: pd.DataFrame) -> str:
+    if clips_df.empty:
+        return "Nog geen clips geregistreerd."
+    lines = []
+    lines.append(f"Beeldanalyse • {st.session_state.team_name} - {st.session_state.opponent_name}")
+    lines.append(f"Wedstrijd-ID: {st.session_state.match_id}")
+    lines.append(f"Aantal clips: {len(clips_df)}")
+    lines.append("")
+    lines.append("Verdeling per thema:")
+    for tag, count in clips_df["tag"].value_counts().items():
+        lines.append(f"- {tag}: {count}")
+    lines.append("")
+    lines.append("Clips:")
+    ordered = clips_df.sort_values(["quarter", "start_sec", "created_at"])
+    for _, row in ordered.iterrows():
+        lines.append(
+            f"- {row['quarter']} • {row['start_time']} - {row['end_time']} • {row['clip_title']} • {row['tag']}"
+        )
+        if str(row["tactical_note"]).strip():
+            lines.append(f"  Analyse: {row['tactical_note']}")
+        if str(row["coaching_action"]).strip():
+            lines.append(f"  Coachactie: {row['coaching_action']}")
+    return "\n".join(lines)
+
+# --------------------------------------------------
 # Export helpers
 # --------------------------------------------------
 def export_pdf_report(text: str) -> bytes:
@@ -422,6 +540,22 @@ def export_excel(df: pd.DataFrame) -> bytes:
         if not df.empty:
             pd.DataFrame([build_kpi_summary(df)]).to_excel(writer, sheet_name="KPI", index=False)
             build_entry_heatmap(df).to_excel(writer, sheet_name="Heatmap", index=False)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def export_video_analysis_excel(clips_df: pd.DataFrame) -> bytes:
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        clips_df.to_excel(writer, sheet_name="Beeldanalyse", index=False)
+        if not clips_df.empty:
+            summary_df = (
+                clips_df.groupby("tag", dropna=False)
+                .size()
+                .reset_index(name="clips")
+                .sort_values("clips", ascending=False)
+            )
+            summary_df.to_excel(writer, sheet_name="Samenvatting", index=False)
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -582,8 +716,8 @@ def render_hero_header() -> None:
     <div class="hero">
         <div class="hero-top">
             <div>
-                <div class="hero-title">🏑 Hockey Coach Analyse Tool V8.1</div>
-                <div class="hero-sub">Stabiele versie met live tagging, device-modi, momentum en coachrapport.</div>
+                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.0</div>
+                <div class="hero-sub">Live tagging, veldanalyse, rapportage en nieuwe beeldanalyse-tab voor wedstrijdvideo.</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <div class="status-chip">⏱ {current_time_str()}</div>
@@ -612,7 +746,7 @@ def render_match_scorebar() -> None:
 
 
 def render_navigation() -> None:
-    screens = ["LIVE", "ANALYSE", "VELD", "RAPPORT"]
+    screens = ["LIVE", "ANALYSE", "VELD", "RAPPORT", "BEELDANALYSE"]
     cols = st.columns(len(screens))
     for i, screen in enumerate(screens):
         if cols[i].button(screen, use_container_width=True, type="primary" if st.session_state.active_screen == screen else "secondary"):
@@ -951,6 +1085,7 @@ def reset_all() -> None:
     if cloud_enabled():
         reset_match_cloud()
     st.session_state.events = []
+    st.session_state.video_clips = []
     st.session_state.score_team = 0
     st.session_state.score_opponent = 0
     st.session_state.auto_notes = ""
@@ -1144,6 +1279,151 @@ def render_report_screen(df: pd.DataFrame) -> None:
     st.markdown("### Eventlog")
     st.dataframe(df[["quarter", "time", "team", "event", "zone", "notes"]], use_container_width=True, hide_index=True)
 
+
+def render_video_analysis_screen(df: pd.DataFrame) -> None:
+    st.markdown("### 🎥 Beeldanalyse")
+    st.caption("Upload een wedstrijdvideo, registreer clips en voeg tactische notities toe voor nabespreking.")
+
+    video_file = st.file_uploader(
+        "Upload wedstrijdvideo",
+        type=["mp4", "mov", "m4v"],
+        key="match_video_uploader",
+    )
+
+    if video_file is not None:
+        st.session_state.uploaded_video_name = video_file.name
+        st.video(video_file)
+        st.success(f"Video geladen: {video_file.name}")
+    else:
+        st.info("Nog geen video geladen. Je kunt wel alvast clips handmatig registreren.")
+
+    st.markdown("### Nieuwe clip toevoegen")
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        clip_title = st.text_input("Clipnaam", placeholder="Bijv. pressmoment links")
+    with f2:
+        clip_tag = st.selectbox("Thema", VIDEO_TAGS, key="clip_tag_select")
+    with f3:
+        clip_team_focus = st.selectbox(
+            "Focus",
+            [st.session_state.team_name, st.session_state.opponent_name, "Algemeen"],
+            key="clip_team_focus_select",
+        )
+
+    t1, t2, t3 = st.columns(3)
+    with t1:
+        clip_quarter = st.selectbox("Kwart", QUARTERS, key="clip_quarter_select")
+    with t2:
+        clip_start = st.number_input("Start (seconden)", min_value=0, value=0, step=1)
+    with t3:
+        clip_end = st.number_input("Einde (seconden)", min_value=0, value=10, step=1)
+
+    st.caption(
+        f"Clipbereik: {format_seconds_to_mmss(clip_start)} - {format_seconds_to_mmss(clip_end)}"
+    )
+
+    snapshot_file = st.file_uploader(
+        "Upload eventueel een screenshot/stilstaand beeld van dit moment",
+        type=["png", "jpg", "jpeg"],
+        key="clip_snapshot_uploader",
+    )
+
+    tactical_note = st.text_area(
+        "Tactische analyse",
+        placeholder="Wat gebeurt hier tactisch? Wat valt op in bezetting, press, opbouw, restverdediging of cirkelactie?",
+        height=120,
+    )
+
+    coaching_action = st.text_area(
+        "Coachactie / leerpunt",
+        placeholder="Wat wil je hier coachen of meenemen naar training of bespreking?",
+        height=100,
+    )
+
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("Clip opslaan", use_container_width=True):
+            if clip_end < clip_start:
+                st.error("Eindtijd moet gelijk aan of later zijn dan starttijd.")
+            else:
+                add_video_clip(
+                    video_name=st.session_state.uploaded_video_name or "geen video",
+                    clip_title=clip_title,
+                    tag=clip_tag,
+                    team_focus=clip_team_focus,
+                    quarter=clip_quarter,
+                    start_sec=clip_start,
+                    end_sec=clip_end,
+                    tactical_note=tactical_note,
+                    coaching_action=coaching_action,
+                    snapshot_name=snapshot_file.name if snapshot_file else "",
+                )
+                st.success("Clip opgeslagen.")
+                st.rerun()
+
+    with b2:
+        if st.button("Verwijder laatste clip", use_container_width=True):
+            remove_last_clip()
+            st.rerun()
+
+    if snapshot_file is not None:
+        st.markdown("### Screenshot van clip")
+        st.image(snapshot_file, use_container_width=True)
+
+    clips_df = build_clips_df()
+
+    st.markdown("### Overzicht")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Aantal clips", len(clips_df))
+    c2.metric("Press clips", int((clips_df["tag"] == "Press").sum()) if not clips_df.empty else 0)
+    c3.metric("Leerclips", int((clips_df["tag"] == "Leerclip").sum()) if not clips_df.empty else 0)
+    c4.metric("Positieve clips", int((clips_df["tag"] == "Positief voorbeeld").sum()) if not clips_df.empty else 0)
+
+    st.markdown("### Cliplog")
+    if clips_df.empty:
+        st.info("Nog geen clips toegevoegd.")
+    else:
+        show_df = clips_df[
+            [
+                "quarter",
+                "start_time",
+                "end_time",
+                "clip_title",
+                "tag",
+                "team_focus",
+                "tactical_note",
+                "coaching_action",
+                "snapshot_name",
+            ]
+        ].sort_values(["quarter", "start_time"], ascending=[True, True])
+        st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+        st.markdown("### Automatische samenvatting")
+        summary_text = generate_video_analysis_summary(clips_df)
+        st.text_area("Samenvatting beeldanalyse", summary_text, height=260)
+
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            st.download_button(
+                "Download TXT beeldanalyse",
+                data=summary_text.encode("utf-8"),
+                file_name="beeldanalyse.txt",
+            )
+        with e2:
+            st.download_button(
+                "Download PDF beeldanalyse",
+                data=export_pdf_report(summary_text),
+                file_name="beeldanalyse.pdf",
+                mime="application/pdf" if REPORTLAB_AVAILABLE else "text/plain",
+            )
+        with e3:
+            st.download_button(
+                "Download Excel beeldanalyse",
+                data=export_video_analysis_excel(clips_df),
+                file_name="beeldanalyse.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
 # --------------------------------------------------
 # Auto sync
 # --------------------------------------------------
@@ -1182,5 +1462,7 @@ elif st.session_state.active_screen == "ANALYSE":
     render_analysis_screen(df)
 elif st.session_state.active_screen == "VELD":
     render_field_screen(df)
-else:
+elif st.session_state.active_screen == "RAPPORT":
     render_report_screen(df)
+else:
+    render_video_analysis_screen(df)
