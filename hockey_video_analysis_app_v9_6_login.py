@@ -4,9 +4,6 @@ import pandas as pd
 import time
 import uuid
 from io import BytesIO
-from PIL import Image
-import base64
-import json
 from textwrap import dedent
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
@@ -24,19 +21,67 @@ try:
 except Exception:
     REPORTLAB_AVAILABLE = False
 
-try:
-    from streamlit_drawable_canvas import st_canvas
-    DRAWABLE_CANVAS_AVAILABLE = True
-except Exception:
-    st_canvas = None
-    DRAWABLE_CANVAS_AVAILABLE = False
-
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V9.4",
+    page_title="Hockey Coach Analyse Tool V9.6",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+
+# --------------------------------------------------
+# Login / access control
+# --------------------------------------------------
+ALLOWED_USERS = {
+    email.strip().lower()
+    for email in st.secrets.get(
+        "ALLOWED_USERS",
+        [
+            "coach@jouwclub.nl",
+            "assistent@jouwclub.nl",
+            "analist@jouwclub.nl",
+        ],
+    )
+    if str(email).strip()
+}
+
+
+def get_logged_in_email() -> str:
+    try:
+        return str(st.user.get("email", "")).strip().lower()
+    except Exception:
+        return ""
+
+
+def require_login() -> None:
+    if not st.user.is_logged_in:
+        st.title("🔒 Privé hockey-analyse app")
+        st.write("Log in om toegang te krijgen.")
+        st.info("Stel OIDC eerst in via .streamlit/secrets.toml. Voeg daarna toegestane e-mailadressen toe aan ALLOWED_USERS.")
+        if st.button("Log in", use_container_width=True):
+            st.login()
+        st.stop()
+
+    user_email = get_logged_in_email()
+    if user_email not in ALLOWED_USERS:
+        st.error("Je account heeft geen toegang tot deze app.")
+        st.write(f"Ingelogd als: {user_email or 'onbekend account'}")
+        if st.button("Log uit", use_container_width=True):
+            st.logout()
+        st.stop()
+
+
+def render_user_bar() -> None:
+    user_email = get_logged_in_email()
+    c1, c2 = st.columns([5, 1])
+    with c1:
+        st.caption(f"Ingelogd als: {user_email}")
+    with c2:
+        if st.button("Log uit", use_container_width=True):
+            st.logout()
+
+
+require_login()
 
 # --------------------------------------------------
 # Defaults
@@ -71,10 +116,6 @@ DEFAULTS = {
     "ui_match_id": "wedstrijd-1",
     "ui_device_mode": "iPad",
     "uploaded_video_name": "",
-    "selected_clip_id": None,
-    "annotation_stroke_width": 4,
-    "annotation_stroke_color": "#FF6B00",
-    "annotation_fill_color": "rgba(255, 107, 0, 0.15)",
 }
 
 for key, value in DEFAULTS.items():
@@ -209,9 +250,6 @@ def build_clips_df() -> pd.DataFrame:
         "coaching_action",
         "created_at",
         "snapshot_name",
-        "snapshot_bytes_b64",
-        "annotations_json",
-        "annotation_note",
     ]
     if not st.session_state.video_clips:
         return pd.DataFrame(columns=cols)
@@ -221,43 +259,6 @@ def build_clips_df() -> pd.DataFrame:
             df[col] = ""
     return df[cols]
 
-
-
-
-def uploaded_file_to_base64(uploaded_file) -> str:
-    if uploaded_file is None:
-        return ""
-    data = uploaded_file.getvalue()
-    return base64.b64encode(data).decode("utf-8")
-
-
-def base64_to_pil_image(data_b64: str):
-    if not data_b64:
-        return None
-    try:
-        raw = base64.b64decode(data_b64)
-        return Image.open(BytesIO(raw)).convert("RGBA")
-    except Exception:
-        return None
-
-
-def get_clip_by_id(clip_id: str):
-    for clip in st.session_state.video_clips:
-        if clip.get("id") == clip_id:
-            return clip
-    return None
-
-
-def update_clip_annotation(clip_id: str, annotations_json: str, annotation_note: str = "") -> None:
-    clip = get_clip_by_id(clip_id)
-    if clip is None:
-        return
-    clip["annotations_json"] = annotations_json
-    clip["annotation_note"] = annotation_note
-
-
-def clip_label(row: dict) -> str:
-    return f"{row.get('quarter', '')} • {row.get('start_time', '')}-{row.get('end_time', '')} • {row.get('clip_title', '')}"
 
 def count_events(
     df: pd.DataFrame,
@@ -1016,7 +1017,7 @@ def render_hero_header() -> None:
     <div class="hero">
         <div class="hero-top">
             <div>
-                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.4</div>
+                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.6</div>
                 <div class="hero-sub">Live tagging, veldanalyse, rapportage en beeldanalyse-tab voor wedstrijdvideo.</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -1376,7 +1377,6 @@ def add_video_clip(
     tactical_note: str,
     coaching_action: str,
     snapshot_name: str = "",
-    snapshot_bytes_b64: str = "",
 ) -> None:
     start_sec = max(0, int(start_sec))
     end_sec = max(start_sec, int(end_sec))
@@ -1397,9 +1397,6 @@ def add_video_clip(
         "coaching_action": coaching_action.strip(),
         "created_at": time.time(),
         "snapshot_name": snapshot_name,
-        "snapshot_bytes_b64": snapshot_bytes_b64,
-        "annotations_json": "",
-        "annotation_note": "",
     }
     st.session_state.video_clips.append(row)
 
@@ -1658,7 +1655,7 @@ def render_report_screen(df: pd.DataFrame) -> None:
 
 def render_video_analysis_screen(df: pd.DataFrame) -> None:
     st.markdown("### 🎥 Beeldanalyse")
-    st.caption("Upload een wedstrijdvideo of gebruik een videolink, registreer clips en voeg interactieve annotaties toe op screenshots.")
+    st.caption("Upload een wedstrijdvideo of gebruik een videolink, registreer clips en voeg tactische notities toe voor nabespreking.")
 
     with st.expander("Grote videobestanden gebruiken"):
         st.markdown(
@@ -1733,9 +1730,7 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
     with t3:
         clip_end = st.number_input("Einde (seconden)", min_value=0, value=10, step=1)
 
-    st.caption(
-        f"Clipbereik: {format_seconds_to_mmss(clip_start)} - {format_seconds_to_mmss(clip_end)}"
-    )
+    st.caption(f"Clipbereik: {format_seconds_to_mmss(clip_start)} - {format_seconds_to_mmss(clip_end)}")
 
     snapshot_file = st.file_uploader(
         "Upload eventueel een screenshot/stilstaand beeld van dit moment",
@@ -1748,7 +1743,6 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
         placeholder="Wat gebeurt hier tactisch? Wat valt op in bezetting, press, opbouw, restverdediging of cirkelactie?",
         height=120,
     )
-
     coaching_action = st.text_area(
         "Coachactie / leerpunt",
         placeholder="Wat wil je hier coachen of meenemen naar training of bespreking?",
@@ -1772,11 +1766,9 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
                     tactical_note=tactical_note,
                     coaching_action=coaching_action,
                     snapshot_name=snapshot_file.name if snapshot_file else "",
-                    snapshot_bytes_b64=uploaded_file_to_base64(snapshot_file),
                 )
                 st.success("Clip opgeslagen.")
                 st.rerun()
-
     with b2:
         if st.button("Verwijder laatste clip", use_container_width=True):
             remove_last_clip()
@@ -1787,7 +1779,6 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
         st.image(snapshot_file, use_container_width=True)
 
     clips_df = build_clips_df()
-
     st.markdown("### Overzicht")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Aantal clips", len(clips_df))
@@ -1798,131 +1789,49 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
     st.markdown("### Cliplog")
     if clips_df.empty:
         st.info("Nog geen clips toegevoegd.")
-    else:
-        show_df = clips_df[
-            [
-                "quarter",
-                "start_time",
-                "end_time",
-                "clip_title",
-                "tag",
-                "team_focus",
-                "video_name",
-                "snapshot_name",
-                "tactical_note",
-                "coaching_action",
-            ]
-        ].sort_values(["quarter", "start_time"], ascending=[True, True])
-        st.dataframe(show_df, use_container_width=True, hide_index=True)
+        return
 
-        st.markdown("### Interactieve annotaties")
-        if not DRAWABLE_CANVAS_AVAILABLE:
-            st.warning("Installeer eerst streamlit-drawable-canvas om annotaties te gebruiken: pip install streamlit-drawable-canvas")
-        else:
-            clip_options = {clip_label(row): row["id"] for _, row in clips_df.sort_values(["quarter", "start_sec"]).iterrows()}
-            selected_label = st.selectbox("Kies clip voor annotatie", list(clip_options.keys()), key="selected_clip_label")
-            selected_clip_id = clip_options[selected_label]
-            st.session_state.selected_clip_id = selected_clip_id
-            clip = get_clip_by_id(selected_clip_id)
+    show_df = clips_df[
+        [
+            "quarter",
+            "start_time",
+            "end_time",
+            "clip_title",
+            "tag",
+            "team_focus",
+            "video_name",
+            "tactical_note",
+            "coaching_action",
+            "snapshot_name",
+        ]
+    ].sort_values(["quarter", "start_time"], ascending=[True, True])
+    st.dataframe(show_df, use_container_width=True, hide_index=True)
 
-            if clip is None:
-                st.info("Clip niet gevonden.")
-            elif not clip.get("snapshot_bytes_b64"):
-                st.info("Voor interactieve annotaties heeft deze clip een screenshot nodig. Upload bij deze clip eerst een stilstaand beeld.")
-            else:
-                bg_image = base64_to_pil_image(clip.get("snapshot_bytes_b64", ""))
-                if bg_image is None:
-                    st.error("Screenshot kon niet geladen worden voor annotatie.")
-                else:
-                    a1, a2, a3 = st.columns([1.1, 1, 1])
-                    with a1:
-                        drawing_mode = st.selectbox(
-                            "Tekentool",
-                            ["transform", "line", "rect", "circle", "point", "polygon", "freedraw"],
-                            key="drawing_mode_select",
-                        )
-                    with a2:
-                        stroke_color = st.color_picker("Lijnkleur", value=st.session_state.annotation_stroke_color, key="annotation_stroke_color")
-                    with a3:
-                        fill_color = st.text_input("Vulkleur", value=st.session_state.annotation_fill_color, key="annotation_fill_color")
+    st.markdown("### Automatische samenvatting")
+    summary_text = generate_video_analysis_summary(clips_df)
+    st.text_area("Samenvatting beeldanalyse", summary_text, height=260)
 
-                    stroke_width = st.slider("Lijndikte", min_value=1, max_value=12, value=st.session_state.annotation_stroke_width, key="annotation_stroke_width")
-                    annotation_note = st.text_area(
-                        "Annotatienotitie",
-                        value=clip.get("annotation_note", ""),
-                        placeholder="Bijv. back staat te diep, pressafstand te groot, vrije speler in de as.",
-                        height=100,
-                        key=f"annotation_note_{selected_clip_id}",
-                    )
-
-                    initial_drawing = None
-                    if clip.get("annotations_json"):
-                        try:
-                            initial_drawing = json.loads(clip.get("annotations_json"))
-                        except Exception:
-                            initial_drawing = None
-
-                    st.caption("Gebruik transform om objecten te verplaatsen of te schalen nadat je ze hebt getekend.")
-                    canvas_result = st_canvas(
-                        fill_color=fill_color,
-                        stroke_width=stroke_width,
-                        stroke_color=stroke_color,
-                        background_image=bg_image,
-                        update_streamlit=True,
-                        height=bg_image.height,
-                        width=bg_image.width,
-                        drawing_mode=drawing_mode,
-                        initial_drawing=initial_drawing,
-                        display_toolbar=True,
-                        key=f"canvas_{selected_clip_id}",
-                    )
-
-                    s1, s2 = st.columns(2)
-                    with s1:
-                        if st.button("Annotaties opslaan", use_container_width=True, key=f"save_annotations_{selected_clip_id}"):
-                            payload = json.dumps(canvas_result.json_data) if canvas_result.json_data else ""
-                            update_clip_annotation(selected_clip_id, payload, annotation_note)
-                            st.success("Annotaties opgeslagen.")
-                            st.rerun()
-                    with s2:
-                        if st.button("Annotaties wissen", use_container_width=True, key=f"clear_annotations_{selected_clip_id}"):
-                            update_clip_annotation(selected_clip_id, "", "")
-                            st.success("Annotaties verwijderd.")
-                            st.rerun()
-
-                    if canvas_result.json_data and canvas_result.json_data.get("objects"):
-                        object_count = len(canvas_result.json_data.get("objects", []))
-                        st.caption(f"Objecten op canvas: {object_count}")
-
-                    if clip.get("annotation_note"):
-                        st.markdown("**Opgeslagen annotatienotitie**")
-                        st.write(clip.get("annotation_note"))
-
-        st.markdown("### Automatische samenvatting")
-        summary_text = generate_video_analysis_summary(clips_df)
-        st.text_area("Samenvatting beeldanalyse", summary_text, height=260)
-
-        e1, e2, e3 = st.columns(3)
-        with e1:
-            st.download_button(
-                "Download TXT beeldanalyse",
-                data=summary_text.encode("utf-8"),
-                file_name="beeldanalyse.txt",
-            )
-        with e2:
-            st.download_button(
-                "Download PDF beeldanalyse",
-                data=export_pdf_report(summary_text),
-                file_name="beeldanalyse.pdf",
-                mime="application/pdf" if REPORTLAB_AVAILABLE else "text/plain",
-            )
-        with e3:
-            st.download_button(
-                "Download Excel beeldanalyse",
-                data=export_video_analysis_excel(clips_df),
-                file_name="beeldanalyse.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+    e1, e2, e3 = st.columns(3)
+    with e1:
+        st.download_button(
+            "Download TXT beeldanalyse",
+            data=summary_text.encode("utf-8"),
+            file_name="beeldanalyse.txt",
+        )
+    with e2:
+        st.download_button(
+            "Download PDF beeldanalyse",
+            data=export_pdf_report(summary_text),
+            file_name="beeldanalyse.pdf",
+            mime="application/pdf" if REPORTLAB_AVAILABLE else "text/plain",
+        )
+    with e3:
+        st.download_button(
+            "Download Excel beeldanalyse",
+            data=export_video_analysis_excel(clips_df),
+            file_name="beeldanalyse.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
 # --------------------------------------------------
 # Auto sync
@@ -1942,6 +1851,7 @@ def auto_sync_cloud():
 # --------------------------------------------------
 inject_custom_css()
 render_hero_header()
+render_user_bar()
 render_setup_bar()
 render_navigation()
 auto_sync_cloud()
