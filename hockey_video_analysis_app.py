@@ -23,7 +23,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V9.3",
+    page_title="Hockey Coach Analyse Tool V9.4",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -263,10 +263,18 @@ def next_quarter() -> None:
 def build_kpi_summary(df: pd.DataFrame) -> dict:
     team = st.session_state.team_name
     opp = st.session_state.opponent_name
+
     team_entries = count_events(df, team, "Cirkelentry")
     opp_entries = count_events(df, opp, "Cirkelentry")
-    team_shots = count_events(df, team, "Schot") + count_events(df, team, "Schot op goal")
-    opp_shots = count_events(df, opp, "Schot") + count_events(df, opp, "Schot op goal")
+
+    team_shots = count_events(df, team, "Schot")
+    team_shots_on_goal = count_events(df, team, "Schot op goal")
+    opp_shots = count_events(df, opp, "Schot")
+    opp_shots_on_goal = count_events(df, opp, "Schot op goal")
+
+    team_total_attempts = team_shots + team_shots_on_goal
+    opp_total_attempts = opp_shots + opp_shots_on_goal
+
     team_goals = count_events(df, team, "Goal")
     opp_goals = count_events(df, opp, "Goal")
     team_high_wins = count_events(df, team, "Hoge balverovering")
@@ -274,11 +282,16 @@ def build_kpi_summary(df: pd.DataFrame) -> dict:
     team_counters_against = count_events(df, team, "Counter tegen na balverlies")
     team_press_success = count_events(df, team, "Press succes")
     team_build_fail = count_events(df, team, "Opbouw mislukt")
+
     return {
         "team_entries": team_entries,
         "opp_entries": opp_entries,
         "team_shots": team_shots,
+        "team_shots_on_goal": team_shots_on_goal,
+        "team_total_attempts": team_total_attempts,
         "opp_shots": opp_shots,
+        "opp_shots_on_goal": opp_shots_on_goal,
+        "opp_total_attempts": opp_total_attempts,
         "team_goals": team_goals,
         "opp_goals": opp_goals,
         "team_high_wins": team_high_wins,
@@ -286,10 +299,12 @@ def build_kpi_summary(df: pd.DataFrame) -> dict:
         "team_counters_against": team_counters_against,
         "team_press_success": team_press_success,
         "team_build_fail": team_build_fail,
-        "team_entry_to_shot_pct": percent(team_shots, team_entries),
-        "opp_entry_to_shot_pct": percent(opp_shots, opp_entries),
-        "team_shot_to_goal_pct": percent(team_goals, team_shots),
-        "opp_shot_to_goal_pct": percent(opp_goals, opp_shots),
+        "team_entry_to_shot_pct": percent(team_total_attempts, team_entries),
+        "opp_entry_to_shot_pct": percent(opp_total_attempts, opp_entries),
+        "team_on_goal_pct": percent(team_shots_on_goal, team_total_attempts),
+        "opp_on_goal_pct": percent(opp_shots_on_goal, opp_total_attempts),
+        "team_shot_to_goal_pct": percent(team_goals, team_shots_on_goal),
+        "opp_shot_to_goal_pct": percent(opp_goals, opp_shots_on_goal),
         "team_highwin_to_entry_pct": percent(team_entries, team_high_wins),
         "team_turnover_to_counter_pct": percent(team_counters_against, team_turnovers_own),
     }
@@ -420,8 +435,8 @@ def build_report_sections(df: pd.DataFrame) -> dict:
     opp = st.session_state.opponent_name
     kpi = build_kpi_summary(df)
     aanval = [
-        f"{team} had {kpi['team_entries']} cirkelentries, {kpi['team_shots']} schoten en {kpi['team_goals']} goals.",
-        f"Entry → shot: {kpi['team_entry_to_shot_pct']:.0f}% • shot → goal: {kpi['team_shot_to_goal_pct']:.0f}%.",
+        f"{team} had {kpi['team_entries']} cirkelentries, {kpi['team_shots']} schoten ({kpi['team_shots_on_goal']} op goal) en {kpi['team_goals']} goals.",
+        f"Entry → poging: {kpi['team_entry_to_shot_pct']:.0f}% • op goal: {kpi['team_on_goal_pct']:.0f}% • shot on goal → goal: {kpi['team_shot_to_goal_pct']:.0f}%.",
         f"Dominante entryzone: {dominant_zone_text(df, team, event='Cirkelentry')}.",
     ]
     press = [
@@ -433,12 +448,14 @@ def build_report_sections(df: pd.DataFrame) -> dict:
         f"Turnover eigen helft → counter tegen: {kpi['team_turnover_to_counter_pct']:.0f}%.",
     ]
     verdediging = [
-        f"{opp} had {kpi['opp_entries']} cirkelentries, {kpi['opp_shots']} schoten en {kpi['opp_goals']} goals.",
-        f"Entries tegen → schot: {kpi['opp_entry_to_shot_pct']:.0f}% • schoten tegen → goal: {kpi['opp_shot_to_goal_pct']:.0f}%.",
+        f"{opp} had {kpi['opp_entries']} cirkelentries, {kpi['opp_shots']} schoten ({kpi['opp_shots_on_goal']} op goal) en {kpi['opp_goals']} goals.",
+        f"Entries tegen → poging: {kpi['opp_entry_to_shot_pct']:.0f}% • op goal tegen: {kpi['opp_on_goal_pct']:.0f}% • shot on goal tegen → goal: {kpi['opp_shot_to_goal_pct']:.0f}%.",
     ]
     actiepunt = []
     if kpi["team_entry_to_shot_pct"] < 40 and kpi["team_entries"] > 0:
-        actiepunt.append("Sneller handelen na entry en eerder schieten.")
+        actiepunt.append("Sneller handelen na entry en eerder tot een doelpoging komen.")
+    if kpi["team_on_goal_pct"] < 40 and kpi["team_total_attempts"] > 0:
+        actiepunt.append("Meer schoten tussen de palen krijgen.")
     if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
         actiepunt.append("Veiliger opbouwen in eigen helft.")
     if kpi["opp_entry_to_shot_pct"] > 50:
@@ -480,7 +497,7 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
     else:
         for _, row in quarter_df.iterrows():
             lines.append(
-                f"- {row['Kwart']}: entries voor {int(row['Entries voor'])}, schoten voor {int(row['Schoten voor'])}, goals voor {int(row['Goals voor'])}, entry->shot {row['Entry->shot %']:.1f}%, shot->goal {row['Shot->goal %']:.1f}%, press succes {int(row['Press succes'])}, hoge balverovering {int(row['Hoge balverovering'])}, turnover eigen helft {int(row['Turnover eigen helft'])}, counter tegen {int(row['Counter tegen'])}, entries tegen {int(row['Entries tegen'])}, schoten tegen {int(row['Schoten tegen'])}, goals tegen {int(row['Goals tegen'])}, tegen entry->shot {row['Tegen entry->shot %']:.1f}%, tegen shot->goal {row['Tegen shot->goal %']:.1f}%"
+                f"- {row['Kwart']}: entries voor {int(row['Entries voor'])}, schoten {int(row['Schoten'])}, schoten op goal {int(row['Schoten op goal'])}, totaal pogingen {int(row['Totaal pogingen'])}, goals {int(row['Goals voor'])}, entry->poging {row['Entry->poging %']:.1f}%, op goal {row['Op goal %']:.1f}%, shot on goal->goal {row['Shot on goal->goal %']:.1f}%, press succes {int(row['Press succes'])}, hoge balverovering {int(row['Hoge balverovering'])}, turnover eigen helft {int(row['Turnover eigen helft'])}, counter tegen {int(row['Counter tegen'])}, entries tegen {int(row['Entries tegen'])}, schoten tegen {int(row['Schoten tegen'])}, schoten op goal tegen {int(row['Schoten op goal tegen'])}, totaal pogingen tegen {int(row['Totaal pogingen tegen'])}, goals tegen {int(row['Goals tegen'])}, tegen entry->poging {row['Tegen entry->poging %']:.1f}%, tegen op goal {row['Tegen op goal %']:.1f}%, tegen shot on goal->goal {row['Tegen shot on goal->goal %']:.1f}%"
             )
     return "\n".join(lines)
 
@@ -914,7 +931,7 @@ def render_hero_header() -> None:
     <div class="hero">
         <div class="hero-top">
             <div>
-                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.3</div>
+                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.4</div>
                 <div class="hero-sub">Live tagging, veldanalyse, rapportage en beeldanalyse-tab voor wedstrijdvideo.</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -1474,11 +1491,14 @@ def render_analysis_screen(df: pd.DataFrame) -> None:
     with row1[0]:
         render_info_card("Cirkelentries", str(kpi["team_entries"]), "Entries eigen team", "blue")
     with row1[1]:
-        render_info_card("Entry → shot", f"{kpi['team_entry_to_shot_pct']:.0f}%", "Efficiëntie aanval", "green")
+        render_info_card("Schoten", str(kpi["team_shots"]), "Pogingen naast of geblokt", "orange")
     with row1[2]:
-        render_info_card("Shot → goal", f"{kpi['team_shot_to_goal_pct']:.0f}%", "Afwerking", "green")
+        render_info_card("Schoten op goal", str(kpi["team_shots_on_goal"]), "Doelpogingen op goal", "green")
     with row1[3]:
-        render_info_card("Press succes", str(kpi["team_press_success"]), "Pressmomenten", "blue")
+        render_info_card("Shot on goal → goal", f"{kpi['team_shot_to_goal_pct']:.0f}%", "Afwerking op doelpogingen", "blue")
+    st.markdown("### Statistieken per kwart")
+    quarter_df = build_quarter_stats_df(df)
+    st.dataframe(quarter_df, use_container_width=True, hide_index=True)
     st.markdown("### Momentum analyse")
     moments = detect_momentum(df)
     if moments:
@@ -1486,9 +1506,6 @@ def render_analysis_screen(df: pd.DataFrame) -> None:
             st.success(m)
     else:
         st.info("Nog geen duidelijke momentumfase herkend.")
-    st.markdown("### Statistieken per kwart")
-    quarter_df = build_quarter_stats_df(df)
-    st.dataframe(quarter_df, use_container_width=True, hide_index=True)
     st.markdown("### Cirkelentry heatmap")
     st.dataframe(build_entry_heatmap(df), use_container_width=True, hide_index=True)
     st.markdown("### Match timeline")
@@ -1524,7 +1541,10 @@ def render_report_screen(df: pd.DataFrame) -> None:
         st.text_area("Rustanalyse", st.session_state.halftime_report, height=200)
     st.markdown("### Volledig coachrapport")
     report_text = st.session_state.auto_notes
-    st.text_area("Rapport", report_text, height=250)
+    st.text_area("Rapport", report_text, height=320)
+    st.markdown("### Statistieken per kwart")
+    quarter_df = build_quarter_stats_df(df)
+    st.dataframe(quarter_df, use_container_width=True, hide_index=True)
     st.markdown("### Exports")
     c1, c2, c3 = st.columns(3)
     with c1:
