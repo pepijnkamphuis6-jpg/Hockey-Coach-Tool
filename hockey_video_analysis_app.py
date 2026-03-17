@@ -5,6 +5,8 @@ import time
 import uuid
 from io import BytesIO
 from textwrap import dedent
+from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+from openpyxl.utils import get_column_letter
 
 try:
     from supabase import create_client
@@ -21,7 +23,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V9.2",
+    page_title="Hockey Coach Analyse Tool V9.3",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -565,14 +567,172 @@ def export_pdf_report(text: str) -> bytes:
     return buffer.getvalue()
 
 
+def style_excel_worksheet(ws) -> None:
+    thin = Side(style="thin", color="D9E2F3")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(vertical="center")
+
+    for col_cells in ws.columns:
+        max_len = 0
+        col_letter = get_column_letter(col_cells[0].column)
+        for cell in col_cells:
+            try:
+                value_len = len(str(cell.value)) if cell.value is not None else 0
+                max_len = max(max_len, value_len)
+            except Exception:
+                pass
+        ws.column_dimensions[col_letter].width = min(max(max_len + 2, 12), 35)
+
+
+def add_section_title(ws, row: int, start_col: int, end_col: int, title: str, fill_color: str) -> None:
+    ws.merge_cells(start_row=row, start_column=start_col, end_row=row, end_column=end_col)
+    cell = ws.cell(row=row, column=start_col)
+    cell.value = title
+    cell.font = Font(bold=True, color="FFFFFF", size=12)
+    cell.fill = PatternFill("solid", fgColor=fill_color)
+    cell.alignment = Alignment(horizontal="center", vertical="center")
+
+
+def style_header_row(ws, row: int, cols: list[int], fill_color: str) -> None:
+    for col in cols:
+        cell = ws.cell(row=row, column=col)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor=fill_color)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+
+def format_kpi_sheet(ws) -> None:
+    team_fill = "2563EB"
+    opp_fill = "DC2626"
+    neutral_fill = "0F172A"
+
+    ws.insert_rows(1, 3)
+    add_section_title(ws, 1, 1, 2, "Wedstrijd KPI-overzicht", neutral_fill)
+
+    ws["A2"] = "Eigen team"
+    ws["B2"] = "Tegenstander"
+    style_header_row(ws, 2, [1], team_fill)
+    style_header_row(ws, 2, [2], opp_fill)
+
+    style_excel_worksheet(ws)
+
+
+def format_per_quarter_sheet(ws) -> None:
+    team_fill = "2563EB"
+    opp_fill = "DC2626"
+    neutral_fill = "0F172A"
+
+    ws.insert_rows(1, 2)
+    add_section_title(ws, 1, 1, 15, "Statistieken per kwart", neutral_fill)
+    add_section_title(ws, 2, 1, 10, "Eigen team", team_fill)
+    add_section_title(ws, 2, 11, 15, "Tegenstander", opp_fill)
+    style_header_row(ws, 3, list(range(1, 16)), neutral_fill)
+    style_excel_worksheet(ws)
+
+
+def format_eventlog_sheet(ws, team_name: str, opponent_name: str) -> None:
+    neutral_fill = "0F172A"
+    team_fill = "DBEAFE"
+    opp_fill = "FEE2E2"
+
+    style_header_row(ws, 1, list(range(1, ws.max_column + 1)), neutral_fill)
+
+    team_col = None
+    for idx, cell in enumerate(ws[1], start=1):
+        if str(cell.value).lower() == "team":
+            team_col = idx
+            break
+
+    if team_col:
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=team_col)
+            if cell.value == team_name:
+                for c in range(1, ws.max_column + 1):
+                    ws.cell(row=row, column=c).fill = PatternFill("solid", fgColor=team_fill)
+            elif cell.value == opponent_name:
+                for c in range(1, ws.max_column + 1):
+                    ws.cell(row=row, column=c).fill = PatternFill("solid", fgColor=opp_fill)
+
+    style_excel_worksheet(ws)
+
+
 def export_excel(df: pd.DataFrame) -> bytes:
     buffer = BytesIO()
+
+    eventlog_df = df.copy()
+    kpi = build_kpi_summary(df) if not df.empty else {}
+    quarter_df = build_quarter_stats_df(df) if not df.empty else pd.DataFrame()
+    heatmap_df = build_entry_heatmap(df) if not df.empty else pd.DataFrame()
+
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="Eventlog", index=False)
+        eventlog_df.to_excel(writer, sheet_name="Eventlog", index=False)
+
         if not df.empty:
-            pd.DataFrame([build_kpi_summary(df)]).to_excel(writer, sheet_name="KPI", index=False)
-            build_entry_heatmap(df).to_excel(writer, sheet_name="Heatmap", index=False)
-            build_quarter_stats_df(df).to_excel(writer, sheet_name="Per kwart", index=False)
+            kpi_export_df = pd.DataFrame(
+                [
+                    {
+                        "Eigen team": st.session_state.team_name,
+                        "Tegenstander": st.session_state.opponent_name,
+                    },
+                    {
+                        "Eigen team": f"Cirkelentries: {kpi['team_entries']}",
+                        "Tegenstander": f"Cirkelentries: {kpi['opp_entries']}",
+                    },
+                    {
+                        "Eigen team": f"Schoten: {kpi['team_shots']}",
+                        "Tegenstander": f"Schoten: {kpi['opp_shots']}",
+                    },
+                    {
+                        "Eigen team": f"Goals: {kpi['team_goals']}",
+                        "Tegenstander": f"Goals: {kpi['opp_goals']}",
+                    },
+                    {
+                        "Eigen team": f"Entry->shot: {kpi['team_entry_to_shot_pct']:.1f}%",
+                        "Tegenstander": f"Entry->shot: {kpi['opp_entry_to_shot_pct']:.1f}%",
+                    },
+                    {
+                        "Eigen team": f"Shot->goal: {kpi['team_shot_to_goal_pct']:.1f}%",
+                        "Tegenstander": f"Shot->goal: {kpi['opp_shot_to_goal_pct']:.1f}%",
+                    },
+                    {
+                        "Eigen team": f"Press succes: {kpi['team_press_success']}",
+                        "Tegenstander": "",
+                    },
+                    {
+                        "Eigen team": f"Hoge balverovering: {kpi['team_high_wins']}",
+                        "Tegenstander": "",
+                    },
+                    {
+                        "Eigen team": f"Turnover eigen helft: {kpi['team_turnovers_own']}",
+                        "Tegenstander": "",
+                    },
+                    {
+                        "Eigen team": f"Counter tegen: {kpi['team_counters_against']}",
+                        "Tegenstander": "",
+                    },
+                ]
+            )
+            kpi_export_df.to_excel(writer, sheet_name="KPI", index=False)
+            quarter_df.to_excel(writer, sheet_name="Per kwart", index=False)
+            heatmap_df.to_excel(writer, sheet_name="Heatmap", index=False)
+
+        workbook = writer.book
+
+        format_eventlog_sheet(
+            workbook["Eventlog"],
+            st.session_state.team_name,
+            st.session_state.opponent_name,
+        )
+
+        if not df.empty:
+            format_kpi_sheet(workbook["KPI"])
+            format_per_quarter_sheet(workbook["Per kwart"])
+            style_excel_worksheet(workbook["Heatmap"])
+
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -754,7 +914,7 @@ def render_hero_header() -> None:
     <div class="hero">
         <div class="hero-top">
             <div>
-                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.2</div>
+                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.3</div>
                 <div class="hero-sub">Live tagging, veldanalyse, rapportage en beeldanalyse-tab voor wedstrijdvideo.</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
