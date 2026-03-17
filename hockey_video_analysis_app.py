@@ -1,3 +1,4 @@
+
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
@@ -5,6 +6,7 @@ import time
 import uuid
 from io import BytesIO
 from textwrap import dedent
+from datetime import date
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 
@@ -23,7 +25,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V9.4",
+    page_title="Hockey Coach Analyse Tool V10.0",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -42,7 +44,7 @@ def require_password() -> None:
     try:
         app_password = st.secrets["APP_PASSWORD"]
     except Exception:
-        st.error("APP_PASSWORD ontbreekt in .streamlit/secrets.toml")
+        st.error("APP_PASSWORD ontbreekt in Secrets.")
         st.code('APP_PASSWORD = "jouwsterkwachtwoord123"')
         st.stop()
 
@@ -65,6 +67,7 @@ def render_logout_button() -> None:
             st.session_state.authenticated = False
             st.rerun()
 
+
 require_password()
 
 # --------------------------------------------------
@@ -73,6 +76,7 @@ require_password()
 DEFAULTS = {
     "events": [],
     "video_clips": [],
+    "matches_cache": [],
     "timer_running": False,
     "start_time": None,
     "elapsed_before_run": 0,
@@ -82,10 +86,11 @@ DEFAULTS = {
     "score_team": 0,
     "score_opponent": 0,
     "match_id": "wedstrijd-1",
+    "current_match_date": str(date.today()),
     "last_sync_time": None,
     "last_sync_count": 0,
     "auto_notes": "",
-    "active_screen": "LIVE",
+    "active_screen": "WEDSTRIJDEN",
     "pending_event": None,
     "pending_team": None,
     "field_team": None,
@@ -98,8 +103,10 @@ DEFAULTS = {
     "ui_opponent_name": "Tegenstander",
     "ui_quarter": "Q1",
     "ui_match_id": "wedstrijd-1",
+    "ui_match_date": date.today(),
     "ui_device_mode": "iPad",
     "uploaded_video_name": "",
+    "selected_match_label": "",
 }
 
 for key, value in DEFAULTS.items():
@@ -195,6 +202,38 @@ def normalize_event_row(row: dict) -> dict:
     }
 
 
+def normalize_clip_row(row: dict) -> dict:
+    return {
+        "id": row.get("id", str(uuid.uuid4())),
+        "match_id": row.get("match_id", st.session_state.match_id),
+        "video_name": row.get("video_name", ""),
+        "clip_title": row.get("clip_title", ""),
+        "tag": row.get("tag", ""),
+        "team_focus": row.get("team_focus", ""),
+        "quarter": row.get("quarter", "Q1"),
+        "start_sec": row.get("start_sec", 0),
+        "end_sec": row.get("end_sec", 0),
+        "start_time": row.get("start_time", "00:00"),
+        "end_time": row.get("end_time", "00:00"),
+        "duration_sec": row.get("duration_sec", 0),
+        "tactical_note": row.get("tactical_note", ""),
+        "coaching_action": row.get("coaching_action", ""),
+        "created_at": row.get("created_at", time.time()),
+        "snapshot_name": row.get("snapshot_name", ""),
+    }
+
+
+def normalize_match_row(row: dict) -> dict:
+    return {
+        "id": row.get("id", str(uuid.uuid4())),
+        "match_id": row.get("match_id", st.session_state.match_id),
+        "team_name": row.get("team_name", st.session_state.team_name),
+        "opponent_name": row.get("opponent_name", st.session_state.opponent_name),
+        "match_date": row.get("match_date", st.session_state.current_match_date),
+        "created_at": row.get("created_at", time.time()),
+    }
+
+
 def build_df() -> pd.DataFrame:
     cols = [
         "id",
@@ -238,6 +277,17 @@ def build_clips_df() -> pd.DataFrame:
     if not st.session_state.video_clips:
         return pd.DataFrame(columns=cols)
     df = pd.DataFrame(st.session_state.video_clips)
+    for col in cols:
+        if col not in df.columns:
+            df[col] = ""
+    return df[cols]
+
+
+def build_matches_df() -> pd.DataFrame:
+    cols = ["id", "match_id", "team_name", "opponent_name", "match_date", "created_at"]
+    if not st.session_state.matches_cache:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(st.session_state.matches_cache)
     for col in cols:
         if col not in df.columns:
             df[col] = ""
@@ -536,15 +586,18 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
     sections = build_report_sections(df)
     quarter_df = build_quarter_stats_df(df)
     lines = [f"Wedstrijd: {team} - {opp}", f"Score: {kpi['team_goals']}-{kpi['opp_goals']}", ""]
+
     for title, items in sections.items():
         lines.append(title.upper())
         lines.extend([f"- {x}" for x in items])
         lines.append("")
+
     lines.append("TACTISCHE PATRONEN")
     if patterns:
         lines.extend([f"- {p}" for p in patterns])
     else:
         lines.append("- Nog geen duidelijke patronen zichtbaar.")
+
     lines.append("")
     lines.append("STATISTIEKEN PER KWART")
     if quarter_df.empty:
@@ -552,7 +605,14 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
     else:
         for _, row in quarter_df.iterrows():
             lines.append(
-                f"- {row['Kwart']}: entries voor {int(row['Entries voor'])}, schoten {int(row['Schoten'])}, schoten op goal {int(row['Schoten op goal'])}, totaal pogingen {int(row['Totaal pogingen'])}, goals {int(row['Goals voor'])}, entry->poging {row['Entry->poging %']:.1f}%, op goal {row['Op goal %']:.1f}%, shot on goal->goal {row['Shot on goal->goal %']:.1f}%, press succes {int(row['Press succes'])}, hoge balverovering {int(row['Hoge balverovering'])}, turnover eigen helft {int(row['Turnover eigen helft'])}, counter tegen {int(row['Counter tegen'])}, entries tegen {int(row['Entries tegen'])}, schoten tegen {int(row['Schoten tegen'])}, schoten op goal tegen {int(row['Schoten op goal tegen'])}, totaal pogingen tegen {int(row['Totaal pogingen tegen'])}, goals tegen {int(row['Goals tegen'])}, tegen entry->poging {row['Tegen entry->poging %']:.1f}%, tegen op goal {row['Tegen op goal %']:.1f}%, tegen shot on goal->goal {row['Tegen shot on goal->goal %']:.1f}%"
+                f"- {row['Kwart']}: entries voor {int(row.get('Entries voor', 0))}, "
+                f"schoten {int(row.get('Schoten', 0))}, "
+                f"schoten op goal {int(row.get('Schoten op goal', 0))}, "
+                f"totaal pogingen {int(row.get('Totaal pogingen', 0))}, "
+                f"goals {int(row.get('Goals voor', 0))}, "
+                f"entry->poging {float(row.get('Entry->poging %', 0)):.1f}%, "
+                f"op goal {float(row.get('Op goal %', 0)):.1f}%, "
+                f"shot on goal->goal {float(row.get('Shot on goal->goal %', 0)):.1f}%"
             )
     return "\n".join(lines)
 
@@ -753,54 +813,18 @@ def export_excel(df: pd.DataFrame) -> bytes:
         if not df.empty:
             kpi_export_df = pd.DataFrame(
                 [
-                    {
-                        "Eigen team": st.session_state.team_name,
-                        "Tegenstander": st.session_state.opponent_name,
-                    },
-                    {
-                        "Eigen team": f"Cirkelentries: {kpi['team_entries']}",
-                        "Tegenstander": f"Cirkelentries: {kpi['opp_entries']}",
-                    },
-                    {
-                        "Eigen team": f"Schoten: {kpi['team_shots']}",
-                        "Tegenstander": f"Schoten: {kpi['opp_shots']}",
-                    },
-                    {
-                        "Eigen team": f"Schoten op goal: {kpi['team_shots_on_goal']}",
-                        "Tegenstander": f"Schoten op goal: {kpi['opp_shots_on_goal']}",
-                    },
-                    {
-                        "Eigen team": f"Goals: {kpi['team_goals']}",
-                        "Tegenstander": f"Goals: {kpi['opp_goals']}",
-                    },
-                    {
-                        "Eigen team": f"Entry->poging: {kpi['team_entry_to_shot_pct']:.1f}%",
-                        "Tegenstander": f"Entry->poging: {kpi['opp_entry_to_shot_pct']:.1f}%",
-                    },
-                    {
-                        "Eigen team": f"Op goal %: {kpi['team_on_goal_pct']:.1f}%",
-                        "Tegenstander": f"Op goal %: {kpi['opp_on_goal_pct']:.1f}%",
-                    },
-                    {
-                        "Eigen team": f"Shot on goal->goal: {kpi['team_shot_to_goal_pct']:.1f}%",
-                        "Tegenstander": f"Shot on goal->goal: {kpi['opp_shot_to_goal_pct']:.1f}%",
-                    },
-                    {
-                        "Eigen team": f"Press succes: {kpi['team_press_success']}",
-                        "Tegenstander": "",
-                    },
-                    {
-                        "Eigen team": f"Hoge balverovering: {kpi['team_high_wins']}",
-                        "Tegenstander": "",
-                    },
-                    {
-                        "Eigen team": f"Turnover eigen helft: {kpi['team_turnovers_own']}",
-                        "Tegenstander": "",
-                    },
-                    {
-                        "Eigen team": f"Counter tegen: {kpi['team_counters_against']}",
-                        "Tegenstander": "",
-                    },
+                    {"Eigen team": st.session_state.team_name, "Tegenstander": st.session_state.opponent_name},
+                    {"Eigen team": f"Cirkelentries: {kpi['team_entries']}", "Tegenstander": f"Cirkelentries: {kpi['opp_entries']}"},
+                    {"Eigen team": f"Schoten: {kpi['team_shots']}", "Tegenstander": f"Schoten: {kpi['opp_shots']}"},
+                    {"Eigen team": f"Schoten op goal: {kpi['team_shots_on_goal']}", "Tegenstander": f"Schoten op goal: {kpi['opp_shots_on_goal']}"},
+                    {"Eigen team": f"Goals: {kpi['team_goals']}", "Tegenstander": f"Goals: {kpi['opp_goals']}"},
+                    {"Eigen team": f"Entry->poging: {kpi['team_entry_to_shot_pct']:.1f}%", "Tegenstander": f"Entry->poging: {kpi['opp_entry_to_shot_pct']:.1f}%"},
+                    {"Eigen team": f"Op goal %: {kpi['team_on_goal_pct']:.1f}%", "Tegenstander": f"Op goal %: {kpi['opp_on_goal_pct']:.1f}%"},
+                    {"Eigen team": f"Shot on goal->goal: {kpi['team_shot_to_goal_pct']:.1f}%", "Tegenstander": f"Shot on goal->goal: {kpi['opp_shot_to_goal_pct']:.1f}%"},
+                    {"Eigen team": f"Press succes: {kpi['team_press_success']}", "Tegenstander": ""},
+                    {"Eigen team": f"Hoge balverovering: {kpi['team_high_wins']}", "Tegenstander": ""},
+                    {"Eigen team": f"Turnover eigen helft: {kpi['team_turnovers_own']}", "Tegenstander": ""},
+                    {"Eigen team": f"Counter tegen: {kpi['team_counters_against']}", "Tegenstander": ""},
                 ]
             )
             kpi_export_df.to_excel(writer, sheet_name="KPI", index=False)
@@ -809,11 +833,7 @@ def export_excel(df: pd.DataFrame) -> bytes:
 
         workbook = writer.book
 
-        format_eventlog_sheet(
-            workbook["Eventlog"],
-            st.session_state.team_name,
-            st.session_state.opponent_name,
-        )
+        format_eventlog_sheet(workbook["Eventlog"], st.session_state.team_name, st.session_state.opponent_name)
 
         if not df.empty:
             format_kpi_sheet(workbook["KPI"])
@@ -840,7 +860,7 @@ def export_video_analysis_excel(clips_df: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 # --------------------------------------------------
-# Optional Supabase
+# Optional Supabase / cloud storage
 # --------------------------------------------------
 def get_supabase_client():
     if create_client is None:
@@ -853,6 +873,24 @@ def get_supabase_client():
 
 def cloud_enabled() -> bool:
     return get_supabase_client() is not None
+
+
+def load_matches_from_cloud() -> list:
+    client = get_supabase_client()
+    if client is None:
+        return []
+    try:
+        response = client.table("matches").select("*").order("match_date", desc=True).execute()
+        return [normalize_match_row(r) for r in (response.data or [])]
+    except Exception:
+        return []
+
+
+def save_match_to_cloud(match_row: dict) -> None:
+    client = get_supabase_client()
+    if client is None:
+        return
+    client.table("matches").upsert(match_row, on_conflict="match_id").execute()
 
 
 def load_events_from_cloud(match_id: str) -> list:
@@ -882,22 +920,97 @@ def reset_match_cloud() -> None:
         client.table("match_events").delete().eq("match_id", st.session_state.match_id).execute()
 
 
+def load_video_clips_from_cloud(match_id: str) -> list:
+    client = get_supabase_client()
+    if client is None:
+        return []
+    try:
+        response = client.table("video_clips").select("*").eq("match_id", match_id).order("created_at").execute()
+        return [normalize_clip_row(r) for r in (response.data or [])]
+    except Exception:
+        return []
+
+
+def save_video_clip_to_cloud(clip_row: dict) -> None:
+    client = get_supabase_client()
+    if client is not None:
+        client.table("video_clips").insert(clip_row).execute()
+
+
+def delete_last_clip_cloud() -> None:
+    client = get_supabase_client()
+    if client is None or not st.session_state.video_clips:
+        return
+    client.table("video_clips").delete().eq("id", st.session_state.video_clips[-1]["id"]).execute()
+
+
+def reset_match_clips_cloud() -> None:
+    client = get_supabase_client()
+    if client is not None:
+        client.table("video_clips").delete().eq("match_id", st.session_state.match_id).execute()
+
+
+def refresh_matches_cache() -> None:
+    if cloud_enabled():
+        st.session_state.matches_cache = load_matches_from_cloud()
+
+
 def sync_from_cloud() -> None:
     if not cloud_enabled():
         return
     st.session_state.events = load_events_from_cloud(st.session_state.match_id)
+    st.session_state.video_clips = load_video_clips_from_cloud(st.session_state.match_id)
+    refresh_matches_cache()
     refresh_derived_state()
     st.session_state.last_sync_time = time.strftime("%H:%M:%S")
+
+
+def ensure_current_match_saved() -> None:
+    match_row = normalize_match_row(
+        {
+            "match_id": st.session_state.match_id,
+            "team_name": st.session_state.team_name,
+            "opponent_name": st.session_state.opponent_name,
+            "match_date": st.session_state.current_match_date,
+            "created_at": time.time(),
+        }
+    )
+    if cloud_enabled():
+        save_match_to_cloud(match_row)
+        refresh_matches_cache()
+
+
+def open_match(match_row: dict) -> None:
+    st.session_state.match_id = match_row["match_id"]
+    st.session_state.ui_match_id = match_row["match_id"]
+    st.session_state.team_name = match_row["team_name"]
+    st.session_state.ui_team_name = match_row["team_name"]
+    st.session_state.opponent_name = match_row["opponent_name"]
+    st.session_state.ui_opponent_name = match_row["opponent_name"]
+    st.session_state.current_match_date = str(match_row["match_date"])
+    try:
+        st.session_state.ui_match_date = date.fromisoformat(str(match_row["match_date"]))
+    except Exception:
+        st.session_state.ui_match_date = date.today()
+    if cloud_enabled():
+        sync_from_cloud()
+    else:
+        st.session_state.events = []
+        st.session_state.video_clips = []
+        refresh_derived_state()
+    st.session_state.active_screen = "LIVE"
 
 # --------------------------------------------------
 # UI callbacks / timer
 # --------------------------------------------------
 def sync_team_name_from_ui() -> None:
     st.session_state.team_name = st.session_state.ui_team_name
+    ensure_current_match_saved()
 
 
 def sync_opponent_name_from_ui() -> None:
     st.session_state.opponent_name = st.session_state.ui_opponent_name
+    ensure_current_match_saved()
 
 
 def sync_quarter_from_ui() -> None:
@@ -906,6 +1019,12 @@ def sync_quarter_from_ui() -> None:
 
 def sync_match_id_from_ui() -> None:
     st.session_state.match_id = st.session_state.ui_match_id
+    ensure_current_match_saved()
+
+
+def sync_match_date_from_ui() -> None:
+    st.session_state.current_match_date = str(st.session_state.ui_match_date)
+    ensure_current_match_saved()
 
 
 def sync_device_mode_from_ui() -> None:
@@ -1001,8 +1120,8 @@ def render_hero_header() -> None:
     <div class="hero">
         <div class="hero-top">
             <div>
-                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.4</div>
-                <div class="hero-sub">Live tagging, veldanalyse, rapportage en beeldanalyse-tab voor wedstrijdvideo.</div>
+                <div class="hero-title">🏑 Hockey Coach Analyse Tool V10.0</div>
+                <div class="hero-sub">Wedstrijden beheren, live tagging, rapportage en beeldanalyse per wedstrijd.</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <div class="status-chip">⏱ {current_time_str()}</div>
@@ -1010,6 +1129,7 @@ def render_hero_header() -> None:
                 <div class="status-chip">📡 {sync_text}</div>
                 <div class="status-chip">🔴 {live_text}</div>
                 <div class="status-chip">🆔 {st.session_state.match_id}</div>
+                <div class="status-chip">📅 {st.session_state.current_match_date}</div>
             </div>
         </div>
     </div>
@@ -1031,7 +1151,7 @@ def render_match_scorebar() -> None:
 
 
 def render_navigation() -> None:
-    screens = ["LIVE", "ANALYSE", "VELD", "RAPPORT", "BEELDANALYSE"]
+    screens = ["WEDSTRIJDEN", "LIVE", "ANALYSE", "VELD", "RAPPORT", "BEELDANALYSE"]
     cols = st.columns(len(screens))
     for i, screen in enumerate(screens):
         if cols[i].button(
@@ -1044,7 +1164,7 @@ def render_navigation() -> None:
 
 
 def render_setup_bar() -> None:
-    top1, top2, top3, top4, top5 = st.columns([1.05, 1.05, 0.65, 0.95, 0.9])
+    top1, top2, top3, top4, top5, top6 = st.columns([1.0, 1.0, 0.7, 1.0, 0.9, 0.9])
     with top1:
         st.text_input("Naam eigen team", key="ui_team_name", on_change=sync_team_name_from_ui)
     with top2:
@@ -1054,10 +1174,13 @@ def render_setup_bar() -> None:
     with top4:
         st.text_input("Wedstrijd-ID", key="ui_match_id", on_change=sync_match_id_from_ui)
     with top5:
+        st.date_input("Wedstrijddatum", key="ui_match_date", on_change=sync_match_date_from_ui)
+    with top6:
         st.selectbox("Versie", ["MacBook", "iPad", "iPhone"], key="ui_device_mode", on_change=sync_device_mode_from_ui)
-    b1, b2 = st.columns(2)
+    b1, b2, b3 = st.columns(3)
     b1.button("Nieuwe ID", use_container_width=True, on_click=set_new_match_id)
-    b2.button("Sync", use_container_width=True, on_click=sync_from_cloud)
+    b2.button("Match opslaan", use_container_width=True, on_click=ensure_current_match_saved)
+    b3.button("Sync", use_container_width=True, on_click=sync_from_cloud)
     render_live_clock_bar()
 
 # --------------------------------------------------
@@ -1130,7 +1253,7 @@ def get_insight_cards(df: pd.DataFrame) -> list[dict]:
         risico_sub = f"{kpi['team_turnover_to_counter_pct']:.0f}% van turnovers eigen helft leidt tot gevaar."
     elif kpi["opp_entry_to_shot_pct"] > 50 and kpi["opp_entries"] >= 3:
         risico_value = "Tegenstander komt te makkelijk tot schot"
-        risico_sub = f"{opp} zet {kpi['opp_entry_to_shot_pct']:.0f}% van entries om in schoten."
+        risico_sub = f"{opp} zet {kpi['opp_entry_to_shot_pct']:.0f}% van entries om in doelpogingen."
     patroon_value = "Nog geen duidelijk patroon"
     patroon_sub = patterns[0] if patterns else "Meer events nodig."
     actie_value = "Balans vasthouden"
@@ -1157,11 +1280,11 @@ def render_timeline(df: pd.DataFrame) -> None:
         return
     timeline_df = df.copy()
     timeline_df["seconds"] = timeline_df["time"].astype(str).apply(parse_mmss)
-    timeline_df = timeline_df[timeline_df["event"].isin(["Cirkelentry", "Schot", "Goal"])]
+    timeline_df = timeline_df[timeline_df["event"].isin(["Cirkelentry", "Schot", "Goal", "Schot op goal"])]
     if timeline_df.empty:
         st.info("Nog geen entry-, schot- of goal-events voor de timeline.")
         return
-    event_symbol = {"Cirkelentry": "E", "Schot": "S", "Goal": "G"}
+    event_symbol = {"Cirkelentry": "E", "Schot": "S", "Schot op goal": "OG", "Goal": "G"}
     timeline_df["marker"] = timeline_df["event"].map(event_symbol)
     timeline_df = timeline_df.sort_values(["quarter", "seconds"])
     rows = []
@@ -1328,9 +1451,10 @@ def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: st
         render_heatmap_card("Rechtsvoor", zone_totals["Rechtsvoor"], zone_pcts["Rechtsvoor"], heatmap_alpha(zone_totals["Rechtsvoor"], max_count))
 
 # --------------------------------------------------
-# Event actions
+# Event / clip actions
 # --------------------------------------------------
 def add_event(team: str, event: str, zone: str = "", notes: str = "") -> None:
+    ensure_current_match_saved()
     event_row = normalize_event_row(
         {
             "id": str(uuid.uuid4()),
@@ -1362,27 +1486,32 @@ def add_video_clip(
     coaching_action: str,
     snapshot_name: str = "",
 ) -> None:
+    ensure_current_match_saved()
     start_sec = max(0, int(start_sec))
     end_sec = max(start_sec, int(end_sec))
-    row = {
-        "id": str(uuid.uuid4()),
-        "match_id": st.session_state.match_id,
-        "video_name": video_name,
-        "clip_title": clip_title.strip() or f"{tag} {format_seconds_to_mmss(start_sec)}",
-        "tag": tag,
-        "team_focus": team_focus,
-        "quarter": quarter,
-        "start_sec": start_sec,
-        "end_sec": end_sec,
-        "start_time": format_seconds_to_mmss(start_sec),
-        "end_time": format_seconds_to_mmss(end_sec),
-        "duration_sec": end_sec - start_sec,
-        "tactical_note": tactical_note.strip(),
-        "coaching_action": coaching_action.strip(),
-        "created_at": time.time(),
-        "snapshot_name": snapshot_name,
-    }
+    row = normalize_clip_row(
+        {
+            "id": str(uuid.uuid4()),
+            "match_id": st.session_state.match_id,
+            "video_name": video_name,
+            "clip_title": clip_title.strip() or f"{tag} {format_seconds_to_mmss(start_sec)}",
+            "tag": tag,
+            "team_focus": team_focus,
+            "quarter": quarter,
+            "start_sec": start_sec,
+            "end_sec": end_sec,
+            "start_time": format_seconds_to_mmss(start_sec),
+            "end_time": format_seconds_to_mmss(end_sec),
+            "duration_sec": end_sec - start_sec,
+            "tactical_note": tactical_note.strip(),
+            "coaching_action": coaching_action.strip(),
+            "created_at": time.time(),
+            "snapshot_name": snapshot_name,
+        }
+    )
     st.session_state.video_clips.append(row)
+    if cloud_enabled():
+        save_video_clip_to_cloud(row)
 
 
 def clear_pending_tag() -> None:
@@ -1415,13 +1544,19 @@ def remove_last_event() -> None:
 
 
 def remove_last_clip() -> None:
-    if st.session_state.video_clips:
+    if not st.session_state.video_clips:
+        return
+    if cloud_enabled():
+        delete_last_clip_cloud()
+        sync_from_cloud()
+    else:
         st.session_state.video_clips.pop()
 
 
 def reset_all() -> None:
     if cloud_enabled():
         reset_match_cloud()
+        reset_match_clips_cloud()
     st.session_state.events = []
     st.session_state.video_clips = []
     st.session_state.score_team = 0
@@ -1434,6 +1569,65 @@ def reset_all() -> None:
 # --------------------------------------------------
 # Screens
 # --------------------------------------------------
+def render_matches_screen() -> None:
+    st.markdown("### 📂 Wedstrijden")
+    if not cloud_enabled():
+        st.warning("Wedstrijd-opslag in V10.0 werkt volledig met Supabase. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Secrets om wedstrijden, events en clips per wedstrijd op te slaan.")
+        st.info("Zonder cloud kun je wel de app gebruiken, maar wedstrijden worden dan niet blijvend opgeslagen.")
+        return
+
+    refresh_matches_cache()
+    matches_df = build_matches_df()
+
+    st.markdown("#### Nieuwe wedstrijd maken")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        new_team = st.text_input("Teamnaam", value=st.session_state.team_name, key="new_match_team")
+    with c2:
+        new_opp = st.text_input("Tegenstander", value=st.session_state.opponent_name, key="new_match_opp")
+    with c3:
+        new_date = st.date_input("Datum", value=st.session_state.ui_match_date, key="new_match_date")
+
+    if st.button("Nieuwe wedstrijd opslaan", use_container_width=True):
+        new_match_id = f"wedstrijd-{uuid.uuid4().hex[:6]}"
+        match_row = normalize_match_row(
+            {
+                "match_id": new_match_id,
+                "team_name": new_team.strip() or "Ons team",
+                "opponent_name": new_opp.strip() or "Tegenstander",
+                "match_date": str(new_date),
+                "created_at": time.time(),
+            }
+        )
+        save_match_to_cloud(match_row)
+        open_match(match_row)
+        st.success("Nieuwe wedstrijd aangemaakt en geopend.")
+        st.rerun()
+
+    st.markdown("#### Bestaande wedstrijd openen")
+    if matches_df.empty:
+        st.info("Nog geen opgeslagen wedstrijden gevonden.")
+        return
+
+    matches_df["label"] = matches_df.apply(
+        lambda r: f"{r['match_date']} • {r['team_name']} - {r['opponent_name']} • {r['match_id']}", axis=1
+    )
+    labels = matches_df["label"].tolist()
+    selected_label = st.selectbox("Kies wedstrijd", labels, key="selected_match_label")
+    if st.button("Open geselecteerde wedstrijd", use_container_width=True):
+        match_row = matches_df[matches_df["label"] == selected_label].iloc[0].to_dict()
+        open_match(match_row)
+        st.success("Wedstrijd geladen.")
+        st.rerun()
+
+    st.markdown("#### Overzicht")
+    st.dataframe(
+        matches_df[["match_date", "team_name", "opponent_name", "match_id"]],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
     st.markdown(
         f"<div style='background:{color};color:white;padding:12px 16px;border-radius:18px;font-weight:800;font-size:22px;margin-bottom:10px;text-align:center;'>{team_name}</div>",
@@ -1487,7 +1681,7 @@ def render_live_screen(df: pd.DataFrame) -> None:
         reset_timer()
         st.rerun()
     if st.session_state.confirm_reset:
-        st.warning("Weet je zeker dat je de wedstrijd wilt resetten?")
+        st.warning("Weet je zeker dat je deze wedstrijd wilt resetten?")
         r1, r2 = st.columns(2)
         if r1.button("Ja, reset alles", use_container_width=True):
             reset_all()
@@ -1655,21 +1849,11 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
             """
         )
 
-    source_mode = st.radio(
-        "Videobron",
-        ["Bestand uploaden", "Videolink gebruiken"],
-        horizontal=True,
-        key="video_source_mode",
-    )
-
+    source_mode = st.radio("Videobron", ["Bestand uploaden", "Videolink gebruiken"], horizontal=True, key="video_source_mode")
     active_video_name = ""
 
     if source_mode == "Bestand uploaden":
-        video_file = st.file_uploader(
-            "Upload wedstrijdvideo",
-            type=["mp4", "mov", "m4v", "avi", "webm"],
-            key="match_video_uploader",
-        )
+        video_file = st.file_uploader("Upload wedstrijdvideo", type=["mp4", "mov", "m4v", "avi", "webm"], key="match_video_uploader")
         if video_file is not None:
             st.session_state.uploaded_video_name = video_file.name
             active_video_name = video_file.name
@@ -1678,11 +1862,7 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
         else:
             st.info("Nog geen video geladen. Je kunt wel alvast clips handmatig registreren.")
     else:
-        video_url = st.text_input(
-            "Videolink",
-            placeholder="Plak hier bijvoorbeeld een directe mp4-link of een gedeelde videolink",
-            key="match_video_url_input",
-        )
+        video_url = st.text_input("Videolink", placeholder="Plak hier bijvoorbeeld een directe mp4-link of een gedeelde videolink", key="match_video_url_input")
         if video_url and is_probable_video_url(video_url):
             st.session_state.uploaded_video_name = video_url
             active_video_name = video_url
@@ -1700,11 +1880,7 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
     with f2:
         clip_tag = st.selectbox("Thema", VIDEO_TAGS, key="clip_tag_select")
     with f3:
-        clip_team_focus = st.selectbox(
-            "Focus",
-            [st.session_state.team_name, st.session_state.opponent_name, "Algemeen"],
-            key="clip_team_focus_select",
-        )
+        clip_team_focus = st.selectbox("Focus", [st.session_state.team_name, st.session_state.opponent_name, "Algemeen"], key="clip_team_focus_select")
 
     t1, t2, t3 = st.columns(3)
     with t1:
@@ -1776,18 +1952,7 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
         return
 
     show_df = clips_df[
-        [
-            "quarter",
-            "start_time",
-            "end_time",
-            "clip_title",
-            "tag",
-            "team_focus",
-            "video_name",
-            "tactical_note",
-            "coaching_action",
-            "snapshot_name",
-        ]
+        ["quarter", "start_time", "end_time", "clip_title", "tag", "team_focus", "video_name", "tactical_note", "coaching_action", "snapshot_name"]
     ].sort_values(["quarter", "start_time"], ascending=[True, True])
     st.dataframe(show_df, use_container_width=True, hide_index=True)
 
@@ -1797,11 +1962,7 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
 
     e1, e2, e3 = st.columns(3)
     with e1:
-        st.download_button(
-            "Download TXT beeldanalyse",
-            data=summary_text.encode("utf-8"),
-            file_name="beeldanalyse.txt",
-        )
+        st.download_button("Download TXT beeldanalyse", data=summary_text.encode("utf-8"), file_name="beeldanalyse.txt")
     with e2:
         st.download_button(
             "Download PDF beeldanalyse",
@@ -1824,9 +1985,12 @@ Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet be
 def auto_sync_cloud():
     if cloud_enabled() and st.session_state.match_id:
         fresh = load_events_from_cloud(st.session_state.match_id)
-        if len(fresh) != st.session_state.last_sync_count:
+        fresh_clips = load_video_clips_from_cloud(st.session_state.match_id)
+        if len(fresh) != len(st.session_state.events):
             st.session_state.events = fresh
             refresh_derived_state()
+        if len(fresh_clips) != len(st.session_state.video_clips):
+            st.session_state.video_clips = fresh_clips
         st.session_state.last_sync_count = len(fresh)
         st.session_state.last_sync_time = time.strftime("%H:%M:%S")
 
@@ -1838,6 +2002,9 @@ render_hero_header()
 render_logout_button()
 render_setup_bar()
 render_navigation()
+
+if cloud_enabled():
+    refresh_matches_cache()
 auto_sync_cloud()
 
 df = build_df()
@@ -1846,11 +2013,13 @@ if not st.session_state.auto_notes and not df.empty:
 
 if cloud_enabled():
     last_sync = st.session_state.last_sync_time or "nog niet"
-    st.success(f"Cloud sync actief • laatste sync: {last_sync} • events: {st.session_state.last_sync_count}")
+    st.success(f"Cloud sync actief • laatste sync: {last_sync} • events: {len(st.session_state.events)} • clips: {len(st.session_state.video_clips)} • wedstrijden: {len(st.session_state.matches_cache)}")
 else:
-    st.warning("Cloud sync uit. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
+    st.warning("Cloud sync uit. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets voor V10.0 wedstrijd-opslag.")
 
-if st.session_state.active_screen == "LIVE":
+if st.session_state.active_screen == "WEDSTRIJDEN":
+    render_matches_screen()
+elif st.session_state.active_screen == "LIVE":
     render_live_screen(df)
 elif st.session_state.active_screen == "ANALYSE":
     render_analysis_screen(df)
