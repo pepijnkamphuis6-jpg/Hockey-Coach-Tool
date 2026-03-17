@@ -90,34 +90,11 @@ VIDEO_TAGS = [
 VIDEO_URL_HINTS = ["http://", "https://"]
 
 
-# --------------------------------------------------
-# Video URL helper
-# --------------------------------------------------
 def is_probable_video_url(value: str) -> bool:
     text = str(value).strip().lower()
     if not text:
         return False
     return any(text.startswith(prefix) for prefix in VIDEO_URL_HINTS)
-
-
-# --------------------------------------------------
-# Constants vervolg
-# --------------------------------------------------
-
-    "Opbouw",
-    "Press",
-    "Restverdediging",
-    "Omschakeling aanval",
-    "Omschakeling verdediging",
-    "Cirkelentry",
-    "Cirkelbezetting",
-    "Verdedigende organisatie",
-    "Strafcorner",
-    "Goal voor",
-    "Goal tegen",
-    "Positief voorbeeld",
-    "Leerclip",
-]
 
 TEAM_BLUE = "#2563eb"
 OPP_RED = "#dc2626"
