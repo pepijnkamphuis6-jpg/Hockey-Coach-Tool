@@ -369,19 +369,25 @@ def build_quarter_stats_df(df: pd.DataFrame) -> pd.DataFrame:
     cols = [
         "Kwart",
         "Entries voor",
-        "Schoten voor",
+        "Schoten",
+        "Schoten op goal",
+        "Totaal pogingen",
         "Goals voor",
-        "Entry->shot %",
-        "Shot->goal %",
+        "Entry->poging %",
+        "Op goal %",
+        "Shot on goal->goal %",
         "Press succes",
         "Hoge balverovering",
         "Turnover eigen helft",
         "Counter tegen",
         "Entries tegen",
         "Schoten tegen",
+        "Schoten op goal tegen",
+        "Totaal pogingen tegen",
         "Goals tegen",
-        "Tegen entry->shot %",
-        "Tegen shot->goal %",
+        "Tegen entry->poging %",
+        "Tegen op goal %",
+        "Tegen shot on goal->goal %",
     ]
     if df.empty:
         return pd.DataFrame(columns=cols)
@@ -392,30 +398,40 @@ def build_quarter_stats_df(df: pd.DataFrame) -> pd.DataFrame:
 
     for quarter in QUARTERS:
         team_entries = count_events(df, team, "Cirkelentry", quarter)
-        team_shots = count_events(df, team, "Schot", quarter) + count_events(df, team, "Schot op goal", quarter)
+        team_shots = count_events(df, team, "Schot", quarter)
+        team_shots_on_goal = count_events(df, team, "Schot op goal", quarter)
+        team_total_attempts = team_shots + team_shots_on_goal
         team_goals = count_events(df, team, "Goal", quarter)
 
         opp_entries = count_events(df, opp, "Cirkelentry", quarter)
-        opp_shots = count_events(df, opp, "Schot", quarter) + count_events(df, opp, "Schot op goal", quarter)
+        opp_shots = count_events(df, opp, "Schot", quarter)
+        opp_shots_on_goal = count_events(df, opp, "Schot op goal", quarter)
+        opp_total_attempts = opp_shots + opp_shots_on_goal
         opp_goals = count_events(df, opp, "Goal", quarter)
 
         rows.append(
             {
                 "Kwart": quarter,
                 "Entries voor": team_entries,
-                "Schoten voor": team_shots,
+                "Schoten": team_shots,
+                "Schoten op goal": team_shots_on_goal,
+                "Totaal pogingen": team_total_attempts,
                 "Goals voor": team_goals,
-                "Entry->shot %": round(percent(team_shots, team_entries), 1),
-                "Shot->goal %": round(percent(team_goals, team_shots), 1),
+                "Entry->poging %": round(percent(team_total_attempts, team_entries), 1),
+                "Op goal %": round(percent(team_shots_on_goal, team_total_attempts), 1),
+                "Shot on goal->goal %": round(percent(team_goals, team_shots_on_goal), 1),
                 "Press succes": count_events(df, team, "Press succes", quarter),
                 "Hoge balverovering": count_events(df, team, "Hoge balverovering", quarter),
                 "Turnover eigen helft": count_events(df, team, "Turnover eigen helft", quarter),
                 "Counter tegen": count_events(df, team, "Counter tegen na balverlies", quarter),
                 "Entries tegen": opp_entries,
                 "Schoten tegen": opp_shots,
+                "Schoten op goal tegen": opp_shots_on_goal,
+                "Totaal pogingen tegen": opp_total_attempts,
                 "Goals tegen": opp_goals,
-                "Tegen entry->shot %": round(percent(opp_shots, opp_entries), 1),
-                "Tegen shot->goal %": round(percent(opp_goals, opp_shots), 1),
+                "Tegen entry->poging %": round(percent(opp_total_attempts, opp_entries), 1),
+                "Tegen op goal %": round(percent(opp_shots_on_goal, opp_total_attempts), 1),
+                "Tegen shot on goal->goal %": round(percent(opp_goals, opp_shots_on_goal), 1),
             }
         )
 
@@ -507,18 +523,24 @@ def generate_halftime_report(df: pd.DataFrame) -> str:
         return "Nog geen data voor rustanalyse."
     kpi = build_kpi_summary(df)
     strong, risk, action = [], [], []
+
     if kpi["team_entry_to_shot_pct"] >= 50:
-        strong.append("Entries worden goed omgezet in schoten.")
+        strong.append("Entries worden goed omgezet in doelpogingen.")
+    if kpi["team_on_goal_pct"] >= 50 and kpi["team_total_attempts"] > 0:
+        strong.append("Een groot deel van de pogingen is op goal.")
     if kpi["team_high_wins"] >= 3:
         strong.append("De press levert bruikbare balwinsten op.")
+
     if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
         risk.append("Balverlies eigen helft leidt tot counters tegen.")
         action.append("Veiliger opbouwen in eigen helft.")
     if kpi["opp_entry_to_shot_pct"] > 50:
-        risk.append("Tegenstander komt te makkelijk van entry naar schot.")
+        risk.append("Tegenstander komt te makkelijk van entry naar doelpoging.")
         action.append("Eerder druk op bal zetten bij entry tegen.")
-    if kpi["team_entry_to_shot_pct"] < 40 and kpi["team_entries"] > 0:
-        action.append("Sneller schieten na cirkelentry.")
+    if kpi["team_on_goal_pct"] < 40 and kpi["team_total_attempts"] > 0:
+        risk.append("Te weinig pogingen eindigen tussen de palen.")
+        action.append("Meer rust in de afronding en betere shotselectie.")
+
     if not strong:
         strong.append("Wedstrijdbeeld is nog vrij gebalanceerd.")
     if not risk:
@@ -643,11 +665,12 @@ def format_per_quarter_sheet(ws) -> None:
     opp_fill = "DC2626"
     neutral_fill = "0F172A"
 
+    max_col = max(ws.max_column, 21)
     ws.insert_rows(1, 2)
-    add_section_title(ws, 1, 1, 15, "Statistieken per kwart", neutral_fill)
-    add_section_title(ws, 2, 1, 10, "Eigen team", team_fill)
-    add_section_title(ws, 2, 11, 15, "Tegenstander", opp_fill)
-    style_header_row(ws, 3, list(range(1, 16)), neutral_fill)
+    add_section_title(ws, 1, 1, max_col, "Statistieken per kwart", neutral_fill)
+    add_section_title(ws, 2, 1, 13, "Eigen team", team_fill)
+    add_section_title(ws, 2, 14, max_col, "Tegenstander", opp_fill)
+    style_header_row(ws, 3, list(range(1, max_col + 1)), neutral_fill)
     style_excel_worksheet(ws)
 
 
@@ -704,16 +727,24 @@ def export_excel(df: pd.DataFrame) -> bytes:
                         "Tegenstander": f"Schoten: {kpi['opp_shots']}",
                     },
                     {
+                        "Eigen team": f"Schoten op goal: {kpi['team_shots_on_goal']}",
+                        "Tegenstander": f"Schoten op goal: {kpi['opp_shots_on_goal']}",
+                    },
+                    {
                         "Eigen team": f"Goals: {kpi['team_goals']}",
                         "Tegenstander": f"Goals: {kpi['opp_goals']}",
                     },
                     {
-                        "Eigen team": f"Entry->shot: {kpi['team_entry_to_shot_pct']:.1f}%",
-                        "Tegenstander": f"Entry->shot: {kpi['opp_entry_to_shot_pct']:.1f}%",
+                        "Eigen team": f"Entry->poging: {kpi['team_entry_to_shot_pct']:.1f}%",
+                        "Tegenstander": f"Entry->poging: {kpi['opp_entry_to_shot_pct']:.1f}%",
                     },
                     {
-                        "Eigen team": f"Shot->goal: {kpi['team_shot_to_goal_pct']:.1f}%",
-                        "Tegenstander": f"Shot->goal: {kpi['opp_shot_to_goal_pct']:.1f}%",
+                        "Eigen team": f"Op goal %: {kpi['team_on_goal_pct']:.1f}%",
+                        "Tegenstander": f"Op goal %: {kpi['opp_on_goal_pct']:.1f}%",
+                    },
+                    {
+                        "Eigen team": f"Shot on goal->goal: {kpi['team_shot_to_goal_pct']:.1f}%",
+                        "Tegenstander": f"Shot on goal->goal: {kpi['opp_shot_to_goal_pct']:.1f}%",
                     },
                     {
                         "Eigen team": f"Press succes: {kpi['team_press_success']}",
@@ -1052,7 +1083,7 @@ def get_insight_cards(df: pd.DataFrame) -> list[dict]:
         sterkte_sub = f"{team} heeft {kpi['team_high_wins']} hoge balveroveringen."
     elif kpi["team_entry_to_shot_pct"] >= 50 and kpi["team_entries"] >= 4:
         sterkte_value = "Goede cirkelopvolging"
-        sterkte_sub = f"{kpi['team_entry_to_shot_pct']:.0f}% van de entries leidt tot een schot."
+        sterkte_sub = f"{kpi['team_entry_to_shot_pct']:.0f}% van de entries leidt tot een doelpoging."
     risico_value = "Geen dominant risico"
     risico_sub = "Wedstrijdprofiel oogt in balans."
     if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
