@@ -23,65 +23,49 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V9.6",
+    page_title="Hockey Coach Analyse Tool V9.4",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 
-# --------------------------------------------------
-# Login / access control
-# --------------------------------------------------
-ALLOWED_USERS = {
-    email.strip().lower()
-    for email in st.secrets.get(
-        "ALLOWED_USERS",
-        [
-            "coach@jouwclub.nl",
-            "assistent@jouwclub.nl",
-            "analist@jouwclub.nl",
-        ],
-    )
-    if str(email).strip()
-}
+def require_password() -> None:
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
 
+    if st.session_state.authenticated:
+        return
 
-def get_logged_in_email() -> str:
+    st.title("🔒 Beveiligde hockey-analyse app")
+    st.write("Voer het wachtwoord in om verder te gaan.")
+
     try:
-        return str(st.user.get("email", "")).strip().lower()
+        app_password = st.secrets["APP_PASSWORD"]
     except Exception:
-        return ""
-
-
-def require_login() -> None:
-    if not st.user.is_logged_in:
-        st.title("🔒 Privé hockey-analyse app")
-        st.write("Log in om toegang te krijgen.")
-        st.info("Stel OIDC eerst in via .streamlit/secrets.toml. Voeg daarna toegestane e-mailadressen toe aan ALLOWED_USERS.")
-        if st.button("Log in", use_container_width=True):
-            st.login()
+        st.error("APP_PASSWORD ontbreekt in .streamlit/secrets.toml")
+        st.code('APP_PASSWORD = "jouwsterkwachtwoord123"')
         st.stop()
 
-    user_email = get_logged_in_email()
-    if user_email not in ALLOWED_USERS:
-        st.error("Je account heeft geen toegang tot deze app.")
-        st.write(f"Ingelogd als: {user_email or 'onbekend account'}")
-        if st.button("Log uit", use_container_width=True):
-            st.logout()
-        st.stop()
+    password = st.text_input("Wachtwoord", type="password")
+
+    if st.button("Inloggen", use_container_width=True):
+        if password == app_password:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Onjuist wachtwoord.")
+
+    st.stop()
 
 
-def render_user_bar() -> None:
-    user_email = get_logged_in_email()
+def render_logout_button() -> None:
     c1, c2 = st.columns([5, 1])
-    with c1:
-        st.caption(f"Ingelogd als: {user_email}")
     with c2:
         if st.button("Log uit", use_container_width=True):
-            st.logout()
+            st.session_state.authenticated = False
+            st.rerun()
 
-
-require_login()
+require_password()
 
 # --------------------------------------------------
 # Defaults
@@ -1017,7 +1001,7 @@ def render_hero_header() -> None:
     <div class="hero">
         <div class="hero-top">
             <div>
-                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.6</div>
+                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.4</div>
                 <div class="hero-sub">Live tagging, veldanalyse, rapportage en beeldanalyse-tab voor wedstrijdvideo.</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
@@ -1851,7 +1835,7 @@ def auto_sync_cloud():
 # --------------------------------------------------
 inject_custom_css()
 render_hero_header()
-render_user_bar()
+render_logout_button()
 render_setup_bar()
 render_navigation()
 auto_sync_cloud()
