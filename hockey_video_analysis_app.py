@@ -21,7 +21,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="Hockey Coach Analyse Tool V9.0",
+    page_title="Hockey Coach Analyse Tool V9.2",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -31,6 +31,7 @@ st.set_page_config(
 # --------------------------------------------------
 DEFAULTS = {
     "events": [],
+    "video_clips": [],
     "timer_running": False,
     "start_time": None,
     "elapsed_before_run": 0,
@@ -57,9 +58,7 @@ DEFAULTS = {
     "ui_quarter": "Q1",
     "ui_match_id": "wedstrijd-1",
     "ui_device_mode": "iPad",
-    "video_clips": [],
     "uploaded_video_name": "",
-    "selected_video_note": "",
 }
 
 for key, value in DEFAULTS.items():
@@ -72,6 +71,7 @@ for key, value in DEFAULTS.items():
 QUARTERS = ["Q1", "Q2", "Q3", "Q4"]
 FIELD_ZONES = ["Linksvoor", "Middenvoor", "Rechtsvoor"]
 EVENT_NEEDS_ZONE = {"Cirkelentry"}
+
 VIDEO_TAGS = [
     "Opbouw",
     "Press",
@@ -87,14 +87,6 @@ VIDEO_TAGS = [
     "Positief voorbeeld",
     "Leerclip",
 ]
-VIDEO_URL_HINTS = ["http://", "https://"]
-
-
-def is_probable_video_url(value: str) -> bool:
-    text = str(value).strip().lower()
-    if not text:
-        return False
-    return any(text.startswith(prefix) for prefix in VIDEO_URL_HINTS)
 
 TEAM_BLUE = "#2563eb"
 OPP_RED = "#dc2626"
@@ -141,6 +133,13 @@ def percent(numerator: int, denominator: int) -> float:
     return (numerator / denominator * 100) if denominator > 0 else 0.0
 
 
+def is_probable_video_url(value: str) -> bool:
+    text = str(value).strip().lower()
+    if not text:
+        return False
+    return text.startswith("http://") or text.startswith("https://")
+
+
 def normalize_event_row(row: dict) -> dict:
     return {
         "id": row.get("id", str(uuid.uuid4())),
@@ -170,6 +169,34 @@ def build_df() -> pd.DataFrame:
     if not st.session_state.events:
         return pd.DataFrame(columns=cols)
     df = pd.DataFrame(st.session_state.events)
+    for col in cols:
+        if col not in df.columns:
+            df[col] = ""
+    return df[cols]
+
+
+def build_clips_df() -> pd.DataFrame:
+    cols = [
+        "id",
+        "match_id",
+        "video_name",
+        "clip_title",
+        "tag",
+        "team_focus",
+        "quarter",
+        "start_sec",
+        "end_sec",
+        "start_time",
+        "end_time",
+        "duration_sec",
+        "tactical_note",
+        "coaching_action",
+        "created_at",
+        "snapshot_name",
+    ]
+    if not st.session_state.video_clips:
+        return pd.DataFrame(columns=cols)
+    df = pd.DataFrame(st.session_state.video_clips)
     for col in cols:
         if col not in df.columns:
             df[col] = ""
@@ -321,6 +348,63 @@ def build_entry_heatmap(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def build_quarter_stats_df(df: pd.DataFrame) -> pd.DataFrame:
+    cols = [
+        "Kwart",
+        "Entries voor",
+        "Schoten voor",
+        "Goals voor",
+        "Entry->shot %",
+        "Shot->goal %",
+        "Press succes",
+        "Hoge balverovering",
+        "Turnover eigen helft",
+        "Counter tegen",
+        "Entries tegen",
+        "Schoten tegen",
+        "Goals tegen",
+        "Tegen entry->shot %",
+        "Tegen shot->goal %",
+    ]
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+
+    rows = []
+    team = st.session_state.team_name
+    opp = st.session_state.opponent_name
+
+    for quarter in QUARTERS:
+        team_entries = count_events(df, team, "Cirkelentry", quarter)
+        team_shots = count_events(df, team, "Schot", quarter) + count_events(df, team, "Schot op goal", quarter)
+        team_goals = count_events(df, team, "Goal", quarter)
+
+        opp_entries = count_events(df, opp, "Cirkelentry", quarter)
+        opp_shots = count_events(df, opp, "Schot", quarter) + count_events(df, opp, "Schot op goal", quarter)
+        opp_goals = count_events(df, opp, "Goal", quarter)
+
+        rows.append(
+            {
+                "Kwart": quarter,
+                "Entries voor": team_entries,
+                "Schoten voor": team_shots,
+                "Goals voor": team_goals,
+                "Entry->shot %": round(percent(team_shots, team_entries), 1),
+                "Shot->goal %": round(percent(team_goals, team_shots), 1),
+                "Press succes": count_events(df, team, "Press succes", quarter),
+                "Hoge balverovering": count_events(df, team, "Hoge balverovering", quarter),
+                "Turnover eigen helft": count_events(df, team, "Turnover eigen helft", quarter),
+                "Counter tegen": count_events(df, team, "Counter tegen na balverlies", quarter),
+                "Entries tegen": opp_entries,
+                "Schoten tegen": opp_shots,
+                "Goals tegen": opp_goals,
+                "Tegen entry->shot %": round(percent(opp_shots, opp_entries), 1),
+                "Tegen shot->goal %": round(percent(opp_goals, opp_shots), 1),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def build_report_sections(df: pd.DataFrame) -> dict:
     if df.empty:
         return {
@@ -376,6 +460,7 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
     kpi = build_kpi_summary(df)
     patterns = generate_tactical_patterns(df)
     sections = build_report_sections(df)
+    quarter_df = build_quarter_stats_df(df)
     lines = [f"Wedstrijd: {team} - {opp}", f"Score: {kpi['team_goals']}-{kpi['opp_goals']}", ""]
     for title, items in sections.items():
         lines.append(title.upper())
@@ -386,6 +471,15 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
         lines.extend([f"- {p}" for p in patterns])
     else:
         lines.append("- Nog geen duidelijke patronen zichtbaar.")
+    lines.append("")
+    lines.append("STATISTIEKEN PER KWART")
+    if quarter_df.empty:
+        lines.append("- Nog geen kwartstatistieken beschikbaar.")
+    else:
+        for _, row in quarter_df.iterrows():
+            lines.append(
+                f"- {row['Kwart']}: entries voor {int(row['Entries voor'])}, schoten voor {int(row['Schoten voor'])}, goals voor {int(row['Goals voor'])}, entry->shot {row['Entry->shot %']:.1f}%, shot->goal {row['Shot->goal %']:.1f}%, press succes {int(row['Press succes'])}, hoge balverovering {int(row['Hoge balverovering'])}, turnover eigen helft {int(row['Turnover eigen helft'])}, counter tegen {int(row['Counter tegen'])}, entries tegen {int(row['Entries tegen'])}, schoten tegen {int(row['Schoten tegen'])}, goals tegen {int(row['Goals tegen'])}, tegen entry->shot {row['Tegen entry->shot %']:.1f}%, tegen shot->goal {row['Tegen shot->goal %']:.1f}%"
+            )
     return "\n".join(lines)
 
 
@@ -420,83 +514,6 @@ def generate_halftime_report(df: pd.DataFrame) -> str:
     return txt
 
 
-def refresh_derived_state() -> None:
-    recalc_score()
-    df = build_df()
-    st.session_state.auto_notes = generate_auto_notes(df)
-    st.session_state.last_sync_count = len(df)
-
-# --------------------------------------------------
-# Video / beeldanalyse helpers
-# --------------------------------------------------
-def build_clips_df() -> pd.DataFrame:
-    cols = [
-        "id",
-        "match_id",
-        "video_name",
-        "clip_title",
-        "tag",
-        "team_focus",
-        "quarter",
-        "start_sec",
-        "end_sec",
-        "start_time",
-        "end_time",
-        "duration_sec",
-        "tactical_note",
-        "coaching_action",
-        "created_at",
-        "snapshot_name",
-    ]
-    if not st.session_state.video_clips:
-        return pd.DataFrame(columns=cols)
-    df = pd.DataFrame(st.session_state.video_clips)
-    for col in cols:
-        if col not in df.columns:
-            df[col] = ""
-    return df[cols]
-
-
-def add_video_clip(
-    video_name: str,
-    clip_title: str,
-    tag: str,
-    team_focus: str,
-    quarter: str,
-    start_sec: int,
-    end_sec: int,
-    tactical_note: str,
-    coaching_action: str,
-    snapshot_name: str = "",
-) -> None:
-    start_sec = max(0, int(start_sec))
-    end_sec = max(start_sec, int(end_sec))
-    row = {
-        "id": str(uuid.uuid4()),
-        "match_id": st.session_state.match_id,
-        "video_name": video_name,
-        "clip_title": clip_title.strip() or f"{tag} {format_seconds_to_mmss(start_sec)}",
-        "tag": tag,
-        "team_focus": team_focus,
-        "quarter": quarter,
-        "start_sec": start_sec,
-        "end_sec": end_sec,
-        "start_time": format_seconds_to_mmss(start_sec),
-        "end_time": format_seconds_to_mmss(end_sec),
-        "duration_sec": end_sec - start_sec,
-        "tactical_note": tactical_note.strip(),
-        "coaching_action": coaching_action.strip(),
-        "created_at": time.time(),
-        "snapshot_name": snapshot_name,
-    }
-    st.session_state.video_clips.append(row)
-
-
-def remove_last_clip() -> None:
-    if st.session_state.video_clips:
-        st.session_state.video_clips.pop()
-
-
 def generate_video_analysis_summary(clips_df: pd.DataFrame) -> str:
     if clips_df.empty:
         return "Nog geen clips geregistreerd."
@@ -520,6 +537,13 @@ def generate_video_analysis_summary(clips_df: pd.DataFrame) -> str:
         if str(row["coaching_action"]).strip():
             lines.append(f"  Coachactie: {row['coaching_action']}")
     return "\n".join(lines)
+
+
+def refresh_derived_state() -> None:
+    recalc_score()
+    df = build_df()
+    st.session_state.auto_notes = generate_auto_notes(df)
+    st.session_state.last_sync_count = len(df)
 
 # --------------------------------------------------
 # Export helpers
@@ -548,6 +572,7 @@ def export_excel(df: pd.DataFrame) -> bytes:
         if not df.empty:
             pd.DataFrame([build_kpi_summary(df)]).to_excel(writer, sheet_name="KPI", index=False)
             build_entry_heatmap(df).to_excel(writer, sheet_name="Heatmap", index=False)
+            build_quarter_stats_df(df).to_excel(writer, sheet_name="Per kwart", index=False)
     buffer.seek(0)
     return buffer.getvalue()
 
@@ -704,7 +729,12 @@ def inject_custom_css() -> None:
 
 
 def render_info_card(title: str, value: str, subtitle: str, accent: str) -> None:
-    accent_class = {"blue": "accent-blue", "red": "accent-red", "green": "accent-green", "orange": "accent-orange"}.get(accent, "accent-blue")
+    accent_class = {
+        "blue": "accent-blue",
+        "red": "accent-red",
+        "green": "accent-green",
+        "orange": "accent-orange",
+    }.get(accent, "accent-blue")
     html = dedent(
         f"""
         <div class="safe-card {accent_class}">
@@ -724,8 +754,8 @@ def render_hero_header() -> None:
     <div class="hero">
         <div class="hero-top">
             <div>
-                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.0</div>
-                <div class="hero-sub">Live tagging, veldanalyse, rapportage en nieuwe beeldanalyse-tab voor wedstrijdvideo.</div>
+                <div class="hero-title">🏑 Hockey Coach Analyse Tool V9.2</div>
+                <div class="hero-sub">Live tagging, veldanalyse, rapportage en beeldanalyse-tab voor wedstrijdvideo.</div>
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
                 <div class="status-chip">⏱ {current_time_str()}</div>
@@ -757,7 +787,11 @@ def render_navigation() -> None:
     screens = ["LIVE", "ANALYSE", "VELD", "RAPPORT", "BEELDANALYSE"]
     cols = st.columns(len(screens))
     for i, screen in enumerate(screens):
-        if cols[i].button(screen, use_container_width=True, type="primary" if st.session_state.active_screen == screen else "secondary"):
+        if cols[i].button(
+            screen,
+            use_container_width=True,
+            type="primary" if st.session_state.active_screen == screen else "secondary",
+        ):
             st.session_state.active_screen = screen
             st.rerun()
 
@@ -914,7 +948,14 @@ def heatmap_alpha(value: int, max_value: int) -> float:
     return min(0.55, base + (value / max_value) * 0.42)
 
 
-def build_field_component_html(layer_counts: dict[str, dict[str, int]], selected_team: str, selected_quarter: str, selected_layers: list[str], dominant_text: str, total: int) -> str:
+def build_field_component_html(
+    layer_counts: dict[str, dict[str, int]],
+    selected_team: str,
+    selected_quarter: str,
+    selected_layers: list[str],
+    dominant_text: str,
+    total: int,
+) -> str:
     zone_x_map = {"Linksvoor": "20%", "Middenvoor": "50%", "Rechtsvoor": "80%"}
     event_y_map = {"Cirkelentry": "68%", "Schot": "48%", "Goal": "20%"}
     dot_class_map = {"Cirkelentry": "overlay-entry", "Schot": "overlay-shot", "Goal": "overlay-goal"}
@@ -932,7 +973,9 @@ def build_field_component_html(layer_counts: dict[str, dict[str, int]], selected
                 offset = offsets[zone][i % len(offsets[zone])]
                 base_y = event_y_map.get(event_name, "60%")
                 dot_class = dot_class_map.get(event_name, "overlay-entry")
-                overlay_html.append(f'<div class="overlay-dot {dot_class}" style="left:{zone_x_map[zone]}; top:calc({base_y} + {offset}px); transform:translate(-50%, -50%);"></div>')
+                overlay_html.append(
+                    f'<div class="overlay-dot {dot_class}" style="left:{zone_x_map[zone]}; top:calc({base_y} + {offset}px); transform:translate(-50%, -50%);"></div>'
+                )
     layers_text = " • ".join(selected_layers) if selected_layers else "Geen lagen"
     return f"""
 <!DOCTYPE html>
@@ -1060,6 +1103,41 @@ def add_event(team: str, event: str, zone: str = "", notes: str = "") -> None:
     refresh_derived_state()
 
 
+def add_video_clip(
+    video_name: str,
+    clip_title: str,
+    tag: str,
+    team_focus: str,
+    quarter: str,
+    start_sec: int,
+    end_sec: int,
+    tactical_note: str,
+    coaching_action: str,
+    snapshot_name: str = "",
+) -> None:
+    start_sec = max(0, int(start_sec))
+    end_sec = max(start_sec, int(end_sec))
+    row = {
+        "id": str(uuid.uuid4()),
+        "match_id": st.session_state.match_id,
+        "video_name": video_name,
+        "clip_title": clip_title.strip() or f"{tag} {format_seconds_to_mmss(start_sec)}",
+        "tag": tag,
+        "team_focus": team_focus,
+        "quarter": quarter,
+        "start_sec": start_sec,
+        "end_sec": end_sec,
+        "start_time": format_seconds_to_mmss(start_sec),
+        "end_time": format_seconds_to_mmss(end_sec),
+        "duration_sec": end_sec - start_sec,
+        "tactical_note": tactical_note.strip(),
+        "coaching_action": coaching_action.strip(),
+        "created_at": time.time(),
+        "snapshot_name": snapshot_name,
+    }
+    st.session_state.video_clips.append(row)
+
+
 def clear_pending_tag() -> None:
     st.session_state.pending_event = None
     st.session_state.pending_team = None
@@ -1087,6 +1165,11 @@ def remove_last_event() -> None:
     else:
         st.session_state.events.pop()
         refresh_derived_state()
+
+
+def remove_last_clip() -> None:
+    if st.session_state.video_clips:
+        st.session_state.video_clips.pop()
 
 
 def reset_all() -> None:
@@ -1165,6 +1248,7 @@ def render_live_screen(df: pd.DataFrame) -> None:
         if r2.button("Annuleer reset", use_container_width=True):
             st.session_state.confirm_reset = False
             st.rerun()
+
     mode = st.session_state.device_mode
     if mode == "iPhone":
         st.markdown("### 📱 iPhone coachmodus")
@@ -1185,6 +1269,7 @@ def render_live_screen(df: pd.DataFrame) -> None:
         st.markdown("### Laatste events")
         render_event_feed(df, max_items=5)
         return
+
     if mode == "MacBook":
         left, mid, right = st.columns([1.05, 1.05, 0.9])
         with left:
@@ -1203,6 +1288,7 @@ def render_live_screen(df: pd.DataFrame) -> None:
             st.markdown("### Match timeline")
             render_timeline(df)
         return
+
     left, right = st.columns(2)
     with left:
         render_smart_tag_panel(st.session_state.team_name, "team", TEAM_BLUE)
@@ -1240,6 +1326,9 @@ def render_analysis_screen(df: pd.DataFrame) -> None:
             st.success(m)
     else:
         st.info("Nog geen duidelijke momentumfase herkend.")
+    st.markdown("### Statistieken per kwart")
+    quarter_df = build_quarter_stats_df(df)
+    st.dataframe(quarter_df, use_container_width=True, hide_index=True)
     st.markdown("### Cirkelentry heatmap")
     st.dataframe(build_entry_heatmap(df), use_container_width=True, hide_index=True)
     st.markdown("### Match timeline")
@@ -1281,9 +1370,19 @@ def render_report_screen(df: pd.DataFrame) -> None:
     with c1:
         st.download_button("Download TXT rapport", data=report_text.encode("utf-8"), file_name="coachrapport.txt")
     with c2:
-        st.download_button("Download PDF rapport", data=export_pdf_report(report_text), file_name="coachrapport.pdf", mime="application/pdf" if REPORTLAB_AVAILABLE else "text/plain")
+        st.download_button(
+            "Download PDF rapport",
+            data=export_pdf_report(report_text),
+            file_name="coachrapport.pdf",
+            mime="application/pdf" if REPORTLAB_AVAILABLE else "text/plain",
+        )
     with c3:
-        st.download_button("Download Excel", data=export_excel(df), file_name="wedstrijd_analyse.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button(
+            "Download Excel",
+            data=export_excel(df),
+            file_name="wedstrijd_analyse.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
     st.markdown("### Eventlog")
     st.dataframe(df[["quarter", "time", "team", "event", "zone", "notes"]], use_container_width=True, hide_index=True)
 
@@ -1295,14 +1394,14 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
     with st.expander("Grote videobestanden gebruiken"):
         st.markdown(
             """
-            **Lokaal in Streamlit verhogen:** maak een bestand `.streamlit/config.toml` met:
+**Lokaal in Streamlit verhogen:** maak een bestand `.streamlit/config.toml` met:
 
-            ```toml
-            [server]
-            maxUploadSize = 2000
-            ```
+```toml
+[server]
+maxUploadSize = 2000
+```
 
-            Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet beperkt; gebruik daar liever een videolink.
+Dat zet de uploadlimiet op 2000 MB. Op Streamlit Cloud blijft de uploadlimiet beperkt; gebruik daar liever een videolink.
             """
         )
 
@@ -1321,7 +1420,6 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
             type=["mp4", "mov", "m4v", "avi", "webm"],
             key="match_video_uploader",
         )
-
         if video_file is not None:
             st.session_state.uploaded_video_name = video_file.name
             active_video_name = video_file.name
@@ -1366,9 +1464,7 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
     with t3:
         clip_end = st.number_input("Einde (seconden)", min_value=0, value=10, step=1)
 
-    st.caption(
-        f"Clipbereik: {format_seconds_to_mmss(clip_start)} - {format_seconds_to_mmss(clip_end)}"
-    )
+    st.caption(f"Clipbereik: {format_seconds_to_mmss(clip_start)} - {format_seconds_to_mmss(clip_end)}")
 
     snapshot_file = st.file_uploader(
         "Upload eventueel een screenshot/stilstaand beeld van dit moment",
@@ -1381,7 +1477,6 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
         placeholder="Wat gebeurt hier tactisch? Wat valt op in bezetting, press, opbouw, restverdediging of cirkelactie?",
         height=120,
     )
-
     coaching_action = st.text_area(
         "Coachactie / leerpunt",
         placeholder="Wat wil je hier coachen of meenemen naar training of bespreking?",
@@ -1408,7 +1503,6 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
                 )
                 st.success("Clip opgeslagen.")
                 st.rerun()
-
     with b2:
         if st.button("Verwijder laatste clip", use_container_width=True):
             remove_last_clip()
@@ -1419,7 +1513,6 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
         st.image(snapshot_file, use_container_width=True)
 
     clips_df = build_clips_df()
-
     st.markdown("### Overzicht")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Aantal clips", len(clips_df))
@@ -1430,48 +1523,49 @@ def render_video_analysis_screen(df: pd.DataFrame) -> None:
     st.markdown("### Cliplog")
     if clips_df.empty:
         st.info("Nog geen clips toegevoegd.")
-    else:
-        show_df = clips_df[
-            [
-                "quarter",
-                "start_time",
-                "end_time",
-                "clip_title",
-                "tag",
-                "team_focus",
-                "video_name",
-                "tactical_note",
-                "coaching_action",
-                "snapshot_name",
-            ]
-        ].sort_values(["quarter", "start_time"], ascending=[True, True])
-        st.dataframe(show_df, use_container_width=True, hide_index=True)
+        return
 
-        st.markdown("### Automatische samenvatting")
-        summary_text = generate_video_analysis_summary(clips_df)
-        st.text_area("Samenvatting beeldanalyse", summary_text, height=260)
+    show_df = clips_df[
+        [
+            "quarter",
+            "start_time",
+            "end_time",
+            "clip_title",
+            "tag",
+            "team_focus",
+            "video_name",
+            "tactical_note",
+            "coaching_action",
+            "snapshot_name",
+        ]
+    ].sort_values(["quarter", "start_time"], ascending=[True, True])
+    st.dataframe(show_df, use_container_width=True, hide_index=True)
 
-        e1, e2, e3 = st.columns(3)
-        with e1:
-            st.download_button(
-                "Download TXT beeldanalyse",
-                data=summary_text.encode("utf-8"),
-                file_name="beeldanalyse.txt",
-            )
-        with e2:
-            st.download_button(
-                "Download PDF beeldanalyse",
-                data=export_pdf_report(summary_text),
-                file_name="beeldanalyse.pdf",
-                mime="application/pdf" if REPORTLAB_AVAILABLE else "text/plain",
-            )
-        with e3:
-            st.download_button(
-                "Download Excel beeldanalyse",
-                data=export_video_analysis_excel(clips_df),
-                file_name="beeldanalyse.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+    st.markdown("### Automatische samenvatting")
+    summary_text = generate_video_analysis_summary(clips_df)
+    st.text_area("Samenvatting beeldanalyse", summary_text, height=260)
+
+    e1, e2, e3 = st.columns(3)
+    with e1:
+        st.download_button(
+            "Download TXT beeldanalyse",
+            data=summary_text.encode("utf-8"),
+            file_name="beeldanalyse.txt",
+        )
+    with e2:
+        st.download_button(
+            "Download PDF beeldanalyse",
+            data=export_pdf_report(summary_text),
+            file_name="beeldanalyse.pdf",
+            mime="application/pdf" if REPORTLAB_AVAILABLE else "text/plain",
+        )
+    with e3:
+        st.download_button(
+            "Download Excel beeldanalyse",
+            data=export_video_analysis_excel(clips_df),
+            file_name="beeldanalyse.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
 # --------------------------------------------------
 # Auto sync
