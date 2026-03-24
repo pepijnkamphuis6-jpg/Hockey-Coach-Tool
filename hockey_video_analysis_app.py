@@ -424,6 +424,7 @@ def build_entry_heatmap(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_quarter_stats_df(df: pd.DataFrame) -> pd.DataFrame:
+
 def build_event_summary_per_quarter(df: pd.DataFrame) -> dict:
     summary = {}
     if df.empty:
@@ -453,6 +454,7 @@ def build_event_summary_per_quarter(df: pd.DataFrame) -> dict:
             items = []
             for _, row in counts.iterrows():
                 items.append(f"{row['event']}: {int(row['count'])}")
+
             quarter_summary[team] = items
 
         summary[quarter] = quarter_summary
