@@ -32,25 +32,34 @@ st.set_page_config(
 def require_password() -> None:
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
+    if "user_role" not in st.session_state:
+        st.session_state.user_role = None
 
     if st.session_state.authenticated:
         return
 
     st.title("🔒 Beveiligde hockey-analyse app")
-    st.write("Voer het wachtwoord in om verder te gaan.")
-
-    try:
-        app_password = st.secrets["APP_PASSWORD"]
-    except Exception:
-        st.error("APP_PASSWORD ontbreekt in .streamlit/secrets.toml")
-        st.code('APP_PASSWORD = "jouwsterkwachtwoord123"')
-        st.stop()
+    st.write("Voer je wachtwoord in om verder te gaan.")
 
     password = st.text_input("Wachtwoord", type="password")
 
     if st.button("Inloggen", use_container_width=True):
-        if password == app_password:
+        role = None
+
+        if password == st.secrets.get("COACH_PASSWORD", ""):
+            role = "coach"
+        elif password == st.secrets.get("ASSISTENT_PASSWORD", ""):
+            role = "assistent"
+        elif password == st.secrets.get("ANALIST_PASSWORD", ""):
+            role = "analist"
+        elif password == st.secrets.get("VIEWER_PASSWORD", ""):
+            role = "viewer"
+        elif password == st.secrets.get("APP_PASSWORD", ""):
+            role = "coach"
+
+        if role is not None:
             st.session_state.authenticated = True
+            st.session_state.user_role = role
             st.rerun()
         else:
             st.error("Onjuist wachtwoord.")
@@ -59,11 +68,21 @@ def require_password() -> None:
 
 
 def render_logout_button() -> None:
-    c1, c2 = st.columns([5, 1])
+    c1, c2 = st.columns([4, 1])
+    with c1:
+        role = st.session_state.get("user_role", "onbekend")
+        st.caption(f"Ingelogd als rol: {role}")
     with c2:
         if st.button("Log uit", use_container_width=True):
             st.session_state.authenticated = False
+            st.session_state.user_role = None
             st.rerun()
+def has_edit_rights() -> bool:
+    return st.session_state.get("user_role") in ["coach", "assistent", "analist"]
+
+
+def is_viewer() -> bool:
+    return st.session_state.get("user_role") == "viewer"
 
 require_password()
 
@@ -405,6 +424,40 @@ def build_entry_heatmap(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_quarter_stats_df(df: pd.DataFrame) -> pd.DataFrame:
+def build_event_summary_per_quarter(df: pd.DataFrame) -> dict:
+    summary = {}
+    if df.empty:
+        return summary
+
+    for quarter in QUARTERS:
+        qdf = df[df["quarter"] == quarter].copy()
+
+        quarter_summary = {
+            st.session_state.team_name: [],
+            st.session_state.opponent_name: [],
+        }
+
+        for team in [st.session_state.team_name, st.session_state.opponent_name]:
+            tdf = qdf[qdf["team"] == team]
+            if tdf.empty:
+                quarter_summary[team] = []
+                continue
+
+            counts = (
+                tdf.groupby("event")
+                .size()
+                .reset_index(name="count")
+                .sort_values(["count", "event"], ascending=[False, True])
+            )
+
+            items = []
+            for _, row in counts.iterrows():
+                items.append(f"{row['event']}: {int(row['count'])}")
+            quarter_summary[team] = items
+
+        summary[quarter] = quarter_summary
+
+    return summary
     cols = [
         "Kwart",
         "Entries voor",
@@ -529,35 +582,80 @@ def build_report_sections(df: pd.DataFrame) -> dict:
 def generate_auto_notes(df: pd.DataFrame) -> str:
     if df.empty:
         return "Nog geen data."
+
     team = st.session_state.team_name
     opp = st.session_state.opponent_name
     kpi = build_kpi_summary(df)
     patterns = generate_tactical_patterns(df)
     sections = build_report_sections(df)
     quarter_df = build_quarter_stats_df(df)
-    lines = [f"Wedstrijd: {team} - {opp}", f"Score: {kpi['team_goals']}-{kpi['opp_goals']}", ""]
+    quarter_event_summary = build_event_summary_per_quarter(df)
+
+    lines = [
+        f"Wedstrijd: {team} - {opp}",
+        f"Score: {kpi['team_goals']}-{kpi['opp_goals']}",
+        "",
+    ]
+
     for title, items in sections.items():
         lines.append(title.upper())
         lines.extend([f"- {x}" for x in items])
         lines.append("")
+
     lines.append("TACTISCHE PATRONEN")
     if patterns:
         lines.extend([f"- {p}" for p in patterns])
     else:
         lines.append("- Nog geen duidelijke patronen zichtbaar.")
     lines.append("")
+
     lines.append("STATISTIEKEN PER KWART")
     if quarter_df.empty:
         lines.append("- Nog geen kwartstatistieken beschikbaar.")
     else:
         for _, row in quarter_df.iterrows():
             lines.append(
-                f"- {row['Kwart']}: entries voor {int(row['Entries voor'])}, schoten {int(row['Schoten'])}, schoten op goal {int(row['Schoten op goal'])}, totaal pogingen {int(row['Totaal pogingen'])}, goals {int(row['Goals voor'])}, entry->poging {row['Entry->poging %']:.1f}%, op goal {row['Op goal %']:.1f}%, shot on goal->goal {row['Shot on goal->goal %']:.1f}%, press succes {int(row['Press succes'])}, hoge balverovering {int(row['Hoge balverovering'])}, turnover eigen helft {int(row['Turnover eigen helft'])}, counter tegen {int(row['Counter tegen'])}, entries tegen {int(row['Entries tegen'])}, schoten tegen {int(row['Schoten tegen'])}, schoten op goal tegen {int(row['Schoten op goal tegen'])}, totaal pogingen tegen {int(row['Totaal pogingen tegen'])}, goals tegen {int(row['Goals tegen'])}, tegen entry->poging {row['Tegen entry->poging %']:.1f}%, tegen op goal {row['Tegen op goal %']:.1f}%, tegen shot on goal->goal {row['Tegen shot on goal->goal %']:.1f}%"
+                f"- {row['Kwart']}: "
+                f"entries voor {int(row['Entries voor'])}, "
+                f"schoten {int(row['Schoten'])}, "
+                f"schoten op goal {int(row['Schoten op goal'])}, "
+                f"totaal pogingen {int(row['Totaal pogingen'])}, "
+                f"goals {int(row['Goals voor'])}, "
+                f"entries tegen {int(row['Entries tegen'])}, "
+                f"schoten tegen {int(row['Schoten tegen'])}, "
+                f"schoten op goal tegen {int(row['Schoten op goal tegen'])}, "
+                f"totaal pogingen tegen {int(row['Totaal pogingen tegen'])}, "
+                f"goals tegen {int(row['Goals tegen'])}"
             )
-    return "\n".join(lines)
+    lines.append("")
 
+    lines.append("ALLE EVENTS PER KWART")
+    for quarter in QUARTERS:
+        lines.append(quarter)
 
-def generate_halftime_report(df: pd.DataFrame) -> str:
+        q_summary = quarter_event_summary.get(
+            quarter,
+            {team: [], opp: []},
+        )
+
+        team_items = q_summary.get(team, [])
+        opp_items = q_summary.get(opp, [])
+
+        lines.append(f"- {team}:")
+        if team_items:
+            lines.extend([f"  - {item}" for item in team_items])
+        else:
+            lines.append("  - Geen events")
+
+        lines.append(f"- {opp}:")
+        if opp_items:
+            lines.extend([f"  - {item}" for item in opp_items])
+        else:
+            lines.append("  - Geen events")
+
+        lines.append("")
+
+    return "\n".join(lines)def generate_halftime_report(df: pd.DataFrame) -> str:
     if df.empty:
         return "Nog geen data voor rustanalyse."
     kpi = build_kpi_summary(df)
@@ -1472,6 +1570,12 @@ def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
 
 
 def render_live_screen(df: pd.DataFrame) -> None:
+
+        if is_viewer():
+        st.info("Viewer-modus: je kunt meekijken, maar geen events toevoegen of aanpassen.")
+        st.markdown("### Laatste events")
+        render_event_feed(df, max_items=10)
+        return
     render_match_scorebar()
     a1, a2, a3, a4 = st.columns(4)
     if a1.button("↩️ Undo", use_container_width=True):
@@ -1498,24 +1602,29 @@ def render_live_screen(df: pd.DataFrame) -> None:
 
     mode = st.session_state.device_mode
     if mode == "iPhone":
-        st.markdown("### 📱 iPhone coachmodus")
-        p1, p2 = st.columns(2)
-        with p1:
-            st.metric("Tijd", current_time_str())
-        with p2:
-            st.metric("Kwart", st.session_state.quarter)
-        team_choice = st.radio(
-            "Kies team",
-            [st.session_state.team_name, st.session_state.opponent_name],
-            horizontal=True,
-            key="iphone_team_choice",
-        )
-        active_color = TEAM_BLUE if team_choice == st.session_state.team_name else OPP_RED
-        active_prefix = "iphone_team" if team_choice == st.session_state.team_name else "iphone_opp"
-        render_smart_tag_panel(team_choice, active_prefix, active_color)
+   if mode == "iPhone":
+    st.markdown("### 📱 iPhone coachmodus")
+    p1, p2 = st.columns(2)
+    with p1:
+        st.metric("Tijd", current_time_str())
+    with p2:
+        st.metric("Kwart", st.session_state.quarter)
+
+    if is_viewer():
+        st.info("Viewer-modus: alleen meekijken.")
         st.markdown("### Laatste events")
         render_event_feed(df, max_items=5)
         return
+
+    st.markdown("#### Eigen team")
+    render_smart_tag_panel(st.session_state.team_name, "iphone_team", TEAM_BLUE)
+
+    st.markdown("#### Tegenstander")
+    render_smart_tag_panel(st.session_state.opponent_name, "iphone_opp", OPP_RED)
+
+    st.markdown("### Laatste events")
+    render_event_feed(df, max_items=5)
+    return
 
     if mode == "MacBook":
         left, mid, right = st.columns([1.05, 1.05, 0.9])
