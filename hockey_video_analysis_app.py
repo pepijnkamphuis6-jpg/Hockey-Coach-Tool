@@ -46,15 +46,21 @@ def require_password() -> None:
     if st.button("Inloggen", use_container_width=True):
         role = None
 
-        if password == st.secrets.get("COACH_PASSWORD", ""):
+        coach_pw = st.secrets["COACH_PASSWORD"] if "COACH_PASSWORD" in st.secrets else ""
+        assistent_pw = st.secrets["ASSISTENT_PASSWORD"] if "ASSISTENT_PASSWORD" in st.secrets else ""
+        analist_pw = st.secrets["ANALIST_PASSWORD"] if "ANALIST_PASSWORD" in st.secrets else ""
+        viewer_pw = st.secrets["VIEWER_PASSWORD"] if "VIEWER_PASSWORD" in st.secrets else ""
+        app_pw = st.secrets["APP_PASSWORD"] if "APP_PASSWORD" in st.secrets else ""
+
+        if password == coach_pw:
             role = "coach"
-        elif password == st.secrets.get("ASSISTENT_PASSWORD", ""):
+        elif password == assistent_pw:
             role = "assistent"
-        elif password == st.secrets.get("ANALIST_PASSWORD", ""):
+        elif password == analist_pw:
             role = "analist"
-        elif password == st.secrets.get("VIEWER_PASSWORD", ""):
+        elif password == viewer_pw:
             role = "viewer"
-        elif password == st.secrets.get("APP_PASSWORD", ""):
+        elif password == app_pw:
             role = "coach"
 
         if role is not None:
@@ -65,7 +71,6 @@ def require_password() -> None:
             st.error("Onjuist wachtwoord.")
 
     st.stop()
-
 
 def render_logout_button() -> None:
     c1, c2 = st.columns([4, 1])
