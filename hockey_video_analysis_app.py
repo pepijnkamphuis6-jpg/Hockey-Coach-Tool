@@ -72,6 +72,7 @@ def require_password() -> None:
 
     st.stop()
 
+
 def render_logout_button() -> None:
     c1, c2 = st.columns([4, 1])
     with c1:
@@ -313,16 +314,6 @@ def recalc_score() -> None:
     st.session_state.score_team = count_events(df, st.session_state.team_name, "Goal")
     st.session_state.score_opponent = count_events(df, st.session_state.opponent_name, "Goal")
 
-
-def next_quarter() -> None:
-    try:
-        idx = QUARTERS.index(st.session_state.quarter)
-        next_value = QUARTERS[min(idx + 1, len(QUARTERS) - 1)]
-    except ValueError:
-        next_value = "Q1"
-    st.session_state.quarter = next_value
-    st.session_state.ui_quarter = next_value
-
 # --------------------------------------------------
 # Analysis helpers
 # --------------------------------------------------
@@ -518,21 +509,29 @@ def build_event_summary_per_quarter(df: pd.DataFrame) -> dict:
         }
 
         for team in [st.session_state.team_name, st.session_state.opponent_name]:
-            tdf = qdf[qdf["team"] == team]
+            tdf = qdf[qdf["team"] == team].copy()
+
             if tdf.empty:
                 quarter_summary[team] = []
                 continue
 
             counts = (
-                tdf.groupby("event")
+                tdf.groupby(["event", "zone"], dropna=False)
                 .size()
                 .reset_index(name="count")
-                .sort_values(["count", "event"], ascending=[False, True])
+                .sort_values(["event", "zone"])
             )
 
             items = []
             for _, row in counts.iterrows():
-                items.append(f"{row['event']}: {int(row['count'])}")
+                event_name = str(row["event"])
+                zone_name = str(row["zone"]).strip() if pd.notna(row["zone"]) else ""
+                count_value = int(row["count"])
+
+                if zone_name and zone_name != "":
+                    items.append(f"{event_name} ({zone_name}): {count_value}")
+                else:
+                    items.append(f"{event_name}: {count_value}")
 
             quarter_summary[team] = items
 
@@ -640,8 +639,10 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
             )
     lines.append("")
 
-    lines.append("ALLE EVENTS PER KWART")
+    lines.append("ALLE GETAGDE EVENTS PER KWART")
+
     for quarter in QUARTERS:
+        lines.append("")
         lines.append(quarter)
 
         q_summary = quarter_event_summary.get(
@@ -663,8 +664,6 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
             lines.extend([f"  - {item}" for item in opp_items])
         else:
             lines.append("  - Geen events")
-
-        lines.append("")
 
     return "\n".join(lines)
 
@@ -1172,377 +1171,6 @@ def render_setup_bar() -> None:
     render_live_clock_bar()
 
 # --------------------------------------------------
-# Feed helpers
-# --------------------------------------------------
-def get_event_pill_class(event_name: str) -> str:
-    if event_name == "Goal":
-        return "pill-red"
-    if event_name in ["Schot", "Schot op goal", "Cirkelentry"]:
-        return "pill-blue"
-    if event_name in ["Hoge balverovering", "Press succes"]:
-        return "pill-green"
-    return "pill-gray"
-
-
-def render_event_feed(feed_df: pd.DataFrame, max_items: int = 12) -> None:
-    if feed_df.empty:
-        st.info("Nog geen events in de live feed.")
-        return
-    ordered = feed_df.sort_values("created_at", ascending=False).head(max_items)
-    for _, row in ordered.iterrows():
-        team_color = TEAM_BLUE if row["team"] == st.session_state.team_name else OPP_RED
-        zone_html = f'<span class="pill pill-gray">{row["zone"]}</span>' if str(row["zone"]).strip() else ""
-        notes_html = f'<span class="pill pill-gray">{row["notes"]}</span>' if str(row["notes"]).strip() else ""
-        event_class = get_event_pill_class(str(row["event"]))
-        html = dedent(
-            f"""
-            <div class="mini-feed">
-                <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:8px;">
-                    <div style="font-size:15px; font-weight:800; color:{team_color};">{row['team']} • {row['quarter']}</div>
-                    <div style="font-size:13px; color:{TEXT_SUB}; font-weight:700;">{row['time']}</div>
-                </div>
-                <div>
-                    <span class="pill {event_class}">{row['event']}</span>
-                    {zone_html}
-                    {notes_html}
-                </div>
-            </div>
-            """
-        ).strip()
-        st.markdown(html, unsafe_allow_html=True)
-
-# --------------------------------------------------
-# Insight helpers
-# --------------------------------------------------
-def get_insight_cards(df: pd.DataFrame) -> list[dict]:
-    if df.empty:
-        return [
-            {"title": "Sterkte nu", "value": "Nog geen data", "subtitle": "Voeg events toe."},
-            {"title": "Grootste risico", "value": "Nog geen data", "subtitle": "Nog geen analyse."},
-            {"title": "Belangrijkste patroon", "value": "Nog geen data", "subtitle": "Nog geen patroon zichtbaar."},
-            {"title": "Coachactie nu", "value": "Nog geen data", "subtitle": "Nog geen advies."},
-        ]
-    kpi = build_kpi_summary(df)
-    patterns = generate_tactical_patterns(df)
-    team = st.session_state.team_name
-    opp = st.session_state.opponent_name
-    sterkte_value = "Gebalanceerd profiel"
-    sterkte_sub = "Nog geen duidelijke dominante kracht."
-    if kpi["team_high_wins"] >= 4:
-        sterkte_value = "Press als wapen"
-        sterkte_sub = f"{team} heeft {kpi['team_high_wins']} hoge balveroveringen."
-    elif kpi["team_entry_to_shot_pct"] >= 50 and kpi["team_entries"] >= 4:
-        sterkte_value = "Goede cirkelopvolging"
-        sterkte_sub = f"{kpi['team_entry_to_shot_pct']:.0f}% van de entries leidt tot een doelpoging."
-    risico_value = "Geen dominant risico"
-    risico_sub = "Wedstrijdprofiel oogt in balans."
-    if kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
-        risico_value = "Balverlies = counter tegen"
-        risico_sub = f"{kpi['team_turnover_to_counter_pct']:.0f}% van turnovers eigen helft leidt tot gevaar."
-    elif kpi["opp_entry_to_shot_pct"] > 50 and kpi["opp_entries"] >= 3:
-        risico_value = "Tegenstander komt te makkelijk tot schot"
-        risico_sub = f"{opp} zet {kpi['opp_entry_to_shot_pct']:.0f}% van entries om in schoten."
-    patroon_value = "Nog geen duidelijk patroon"
-    patroon_sub = patterns[0] if patterns else "Meer events nodig."
-    actie_value = "Balans vasthouden"
-    actie_sub = "Details blijven monitoren."
-    if kpi["team_entry_to_shot_pct"] < 40 and kpi["team_entries"] > 0:
-        actie_value = "Sneller tot doelpoging"
-        actie_sub = "Na entry eerder schieten of de beslissende pass geven."
-    elif kpi["team_turnover_to_counter_pct"] >= 50 and kpi["team_turnovers_own"] > 0:
-        actie_value = "Veiliger opbouwen"
-        actie_sub = "Minder risico in eigen helft en restverdediging sneller neerzetten."
-    return [
-        {"title": "Sterkte nu", "value": sterkte_value, "subtitle": sterkte_sub},
-        {"title": "Grootste risico", "value": risico_value, "subtitle": risico_sub},
-        {"title": "Belangrijkste patroon", "value": patroon_value, "subtitle": patroon_sub},
-        {"title": "Coachactie nu", "value": actie_value, "subtitle": actie_sub},
-    ]
-
-# --------------------------------------------------
-# Timeline / field helpers
-# --------------------------------------------------
-def render_timeline(df: pd.DataFrame) -> None:
-    if df.empty:
-        st.info("Nog geen timeline beschikbaar.")
-        return
-    timeline_df = df.copy()
-    timeline_df["seconds"] = timeline_df["time"].astype(str).apply(parse_mmss)
-    timeline_df = timeline_df[timeline_df["event"].isin(["Cirkelentry", "Schot", "Goal"])]
-    if timeline_df.empty:
-        st.info("Nog geen entry-, schot- of goal-events voor de timeline.")
-        return
-    event_symbol = {"Cirkelentry": "E", "Schot": "S", "Goal": "G"}
-    timeline_df["marker"] = timeline_df["event"].map(event_symbol)
-    timeline_df = timeline_df.sort_values(["quarter", "seconds"])
-    rows = []
-    for q in QUARTERS:
-        qdf = timeline_df[timeline_df["quarter"] == q]
-        if qdf.empty:
-            continue
-        markers = "   ".join([f"{r['marker']} {r['time']}" for _, r in qdf.head(12).iterrows()])
-        rows.append({"Kwart": q, "Timeline": markers})
-    if rows:
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-
-def render_heatmap_card(title: str, count: int, pct: float, alpha_value: float) -> None:
-    html = dedent(
-        f"""
-        <div style="background: rgba(37,99,235,{alpha_value}); border: 1px solid {CARD_BORDER}; border-radius: 18px; padding: 16px; min-height: 140px;">
-            <div style="font-weight:800; font-size:18px; color:{TEXT_MAIN};">{title}</div>
-            <div style="font-size:40px; font-weight:900; line-height:1.1; color:{TEXT_MAIN};">{count}</div>
-            <div style="font-size:18px; color:{TEXT_MAIN};">{pct:.0f}%</div>
-        </div>
-        """
-    ).strip()
-    st.markdown(html, unsafe_allow_html=True)
-
-
-def heatmap_alpha(value: int, max_value: int) -> float:
-    base = 0.10
-    if max_value <= 0:
-        return base
-    return min(0.55, base + (value / max_value) * 0.42)
-
-
-def build_field_component_html(
-    layer_counts: dict[str, dict[str, int]],
-    selected_team: str,
-    selected_quarter: str,
-    selected_layers: list[str],
-    dominant_text: str,
-    total: int,
-) -> str:
-    zone_x_map = {"Linksvoor": "20%", "Middenvoor": "50%", "Rechtsvoor": "80%"}
-    event_y_map = {"Cirkelentry": "68%", "Schot": "48%", "Goal": "20%"}
-    dot_class_map = {"Cirkelentry": "overlay-entry", "Schot": "overlay-shot", "Goal": "overlay-goal"}
-    offsets = {
-        "Linksvoor": [-24, -14, -4, 6, 16, 26, -30, 32, 0, 12],
-        "Middenvoor": [-28, -16, -6, 6, 18, 28, -34, 34, 0, 12],
-        "Rechtsvoor": [-24, -14, -4, 6, 16, 26, -30, 32, 0, 12],
-    }
-    overlay_html = []
-    for event_name in selected_layers:
-        zone_counts = layer_counts.get(event_name, {})
-        for zone in FIELD_ZONES:
-            count = zone_counts.get(zone, 0)
-            for i in range(count):
-                offset = offsets[zone][i % len(offsets[zone])]
-                base_y = event_y_map.get(event_name, "60%")
-                dot_class = dot_class_map.get(event_name, "overlay-entry")
-                overlay_html.append(
-                    f'<div class="overlay-dot {dot_class}" style="left:{zone_x_map[zone]}; top:calc({base_y} + {offset}px); transform:translate(-50%, -50%);"></div>'
-                )
-    layers_text = " • ".join(selected_layers) if selected_layers else "Geen lagen"
-    return f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<style>
-html, body {{ margin:0; padding:0; background:transparent; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:{TEXT_MAIN}; }}
-.field-wrap {{ background:{CARD_BG}; border:1px solid {CARD_BORDER}; border-radius:24px; padding:18px; box-shadow:0 10px 28px rgba(15,23,42,0.05); }}
-.toprow {{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }}
-.title {{ font-size:20px; font-weight:900; color:{TEXT_MAIN}; }}
-.sub {{ font-size:13px; color:{TEXT_SUB}; }}
-.half-field {{ position:relative; width:100%; min-height:520px; border-radius:24px; overflow:hidden; background:linear-gradient(180deg, #bbf7d0 0%, #86efac 100%); border:4px solid #166534; box-sizing:border-box; }}
-.zone-panel {{ position:absolute; bottom:4%; height:48%; opacity:0.18; border-top:2px dashed rgba(255,255,255,0.72); }}
-.zone-left {{ left:6%; width:29.33%; background:#60a5fa; }}
-.zone-mid {{ left:35.33%; width:29.33%; background:#facc15; }}
-.zone-right {{ left:64.66%; width:29.33%; background:#fb7185; }}
-.zone-label {{ position:absolute; bottom:54%; font-size:13px; font-weight:800; color:#14532d; background:rgba(255,255,255,0.82); padding:6px 10px; border-radius:999px; }}
-.zl {{ left:12%; }} .zm {{ left:43%; }} .zr {{ left:74%; }}
-.field-line {{ position:absolute; left:6%; right:6%; border-color:rgba(255,255,255,0.95); }}
-.back-line {{ bottom:4%; border-top:4px solid rgba(255,255,255,0.95); }}
-.circle-line {{ bottom:4%; left:18%; right:18%; height:34%; border:4px solid rgba(255,255,255,0.95); border-bottom:none; border-top-left-radius:500px; border-top-right-radius:500px; box-sizing:border-box; }}
-.spot-line {{ position:absolute; width:12px; height:12px; border-radius:999px; background:rgba(255,255,255,0.95); left:50%; transform:translateX(-50%); bottom:24%; }}
-.overlay-dot {{ position:absolute; width:18px; height:18px; border-radius:999px; border:3px solid white; box-shadow:0 0 0 3px rgba(15,23,42,0.12); box-sizing:border-box; }}
-.overlay-entry {{ background:#2563eb; }}
-.overlay-shot {{ background:#f59e0b; }}
-.overlay-goal {{ background:#dc2626; width:22px; height:22px; }}
-.legend-row {{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }}
-.legend-item {{ display:inline-flex; align-items:center; gap:8px; background:#f8fafc; border:1px solid #e2e8f0; padding:8px 12px; border-radius:999px; font-size:13px; font-weight:700; color:{TEXT_SUB}; }}
-.legend-dot {{ width:14px; height:14px; border-radius:999px; display:inline-block; }}
-.bottom {{ margin-top:14px; color:{TEXT_SUB}; font-size:14px; }}
-</style>
-</head>
-<body>
-<div class="field-wrap">
-  <div class="toprow">
-    <div class="title">Veld • {selected_team} • {selected_quarter}</div>
-    <div class="sub">Lagen: {layers_text}</div>
-  </div>
-  <div class="half-field">
-    <div class="zone-panel zone-left"></div>
-    <div class="zone-panel zone-mid"></div>
-    <div class="zone-panel zone-right"></div>
-    <div class="zone-label zl">Linksvoor</div>
-    <div class="zone-label zm">Middenvoor</div>
-    <div class="zone-label zr">Rechtsvoor</div>
-    <div class="field-line back-line"></div>
-    <div class="field-line circle-line"></div>
-    <div class="spot-line"></div>
-    {''.join(overlay_html)}
-  </div>
-  <div class="legend-row">
-    <div class="legend-item"><span class="legend-dot" style="background:#2563eb;"></span> Cirkelentry</div>
-    <div class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span> Schot</div>
-    <div class="legend-item"><span class="legend-dot" style="background:#dc2626;"></span> Goal</div>
-  </div>
-  <div class="bottom">Dominante zone: <strong>{dominant_text}</strong> • totaal geselecteerde events: <strong>{total}</strong></div>
-</div>
-</body>
-</html>
-""".strip()
-
-
-def render_field_view(df: pd.DataFrame, selected_team: str, selected_quarter: str, selected_layers: list[str]) -> None:
-    if df.empty:
-        st.info("Nog geen data voor veldvisualisatie.")
-        return
-    view_df = df[df["team"] == selected_team].copy()
-    if selected_quarter != "Alles":
-        view_df = view_df[view_df["quarter"] == selected_quarter]
-    layer_counts: dict[str, dict[str, int]] = {}
-    zone_totals = {"Linksvoor": 0, "Middenvoor": 0, "Rechtsvoor": 0}
-    for event_name in selected_layers:
-        sub_df = view_df[view_df["event"] == event_name]
-        if event_name == "Cirkelentry":
-            sub_df = sub_df[sub_df["zone"].isin(FIELD_ZONES)]
-            counts = {
-                "Linksvoor": len(sub_df[sub_df["zone"] == "Linksvoor"]),
-                "Middenvoor": len(sub_df[sub_df["zone"] == "Middenvoor"]),
-                "Rechtsvoor": len(sub_df[sub_df["zone"] == "Rechtsvoor"]),
-            }
-        else:
-            counts = {"Linksvoor": 0, "Middenvoor": len(sub_df), "Rechtsvoor": 0}
-        layer_counts[event_name] = counts
-        for zone in FIELD_ZONES:
-            zone_totals[zone] += counts[zone]
-    total = sum(zone_totals.values())
-    zone_pcts = {k: percent(v, total) for k, v in zone_totals.items()}
-    dominant_text = max(zone_totals.items(), key=lambda x: x[1])[0].lower() if total > 0 else "geen data"
-    html = build_field_component_html(layer_counts, selected_team, selected_quarter, selected_layers, dominant_text, total)
-    components.html(html, height=720, scrolling=False)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Linksvoor", zone_totals["Linksvoor"])
-    c2.metric("Middenvoor", zone_totals["Middenvoor"])
-    c3.metric("Rechtsvoor", zone_totals["Rechtsvoor"])
-    max_count = max(zone_totals.values()) if total > 0 else 1
-    h1, h2, h3 = st.columns(3)
-    with h1:
-        render_heatmap_card("Linksvoor", zone_totals["Linksvoor"], zone_pcts["Linksvoor"], heatmap_alpha(zone_totals["Linksvoor"], max_count))
-    with h2:
-        render_heatmap_card("Middenvoor", zone_totals["Middenvoor"], zone_pcts["Middenvoor"], heatmap_alpha(zone_totals["Middenvoor"], max_count))
-    with h3:
-        render_heatmap_card("Rechtsvoor", zone_totals["Rechtsvoor"], zone_pcts["Rechtsvoor"], heatmap_alpha(zone_totals["Rechtsvoor"], max_count))
-
-# --------------------------------------------------
-# Event actions
-# --------------------------------------------------
-def add_event(team: str, event: str, zone: str = "", notes: str = "") -> None:
-    event_row = normalize_event_row(
-        {
-            "id": str(uuid.uuid4()),
-            "match_id": st.session_state.match_id,
-            "quarter": st.session_state.quarter,
-            "time": current_time_str(),
-            "team": team,
-            "event": event,
-            "zone": zone,
-            "notes": notes,
-            "created_at": time.time(),
-        }
-    )
-    st.session_state.events.append(event_row)
-    if cloud_enabled():
-        save_event_to_cloud(event_row)
-    refresh_derived_state()
-
-
-def add_video_clip(
-    video_name: str,
-    clip_title: str,
-    tag: str,
-    team_focus: str,
-    quarter: str,
-    start_sec: int,
-    end_sec: int,
-    tactical_note: str,
-    coaching_action: str,
-    snapshot_name: str = "",
-) -> None:
-    start_sec = max(0, int(start_sec))
-    end_sec = max(start_sec, int(end_sec))
-    row = {
-        "id": str(uuid.uuid4()),
-        "match_id": st.session_state.match_id,
-        "video_name": video_name,
-        "clip_title": clip_title.strip() or f"{tag} {format_seconds_to_mmss(start_sec)}",
-        "tag": tag,
-        "team_focus": team_focus,
-        "quarter": quarter,
-        "start_sec": start_sec,
-        "end_sec": end_sec,
-        "start_time": format_seconds_to_mmss(start_sec),
-        "end_time": format_seconds_to_mmss(end_sec),
-        "duration_sec": end_sec - start_sec,
-        "tactical_note": tactical_note.strip(),
-        "coaching_action": coaching_action.strip(),
-        "created_at": time.time(),
-        "snapshot_name": snapshot_name,
-    }
-    st.session_state.video_clips.append(row)
-
-
-def clear_pending_tag() -> None:
-    st.session_state.pending_event = None
-    st.session_state.pending_team = None
-
-
-def add_smart_event(team: str, event: str, zone: str = "") -> None:
-    add_event(team, event, zone)
-    clear_pending_tag()
-
-
-def start_smart_tag(team: str, event: str) -> None:
-    if event in EVENT_NEEDS_ZONE:
-        st.session_state.pending_event = event
-        st.session_state.pending_team = team
-    else:
-        add_smart_event(team, event)
-
-
-def remove_last_event() -> None:
-    if not st.session_state.events:
-        return
-    if cloud_enabled():
-        delete_last_event_cloud()
-        sync_from_cloud()
-    else:
-        st.session_state.events.pop()
-        refresh_derived_state()
-
-
-def remove_last_clip() -> None:
-    if st.session_state.video_clips:
-        st.session_state.video_clips.pop()
-
-
-def reset_all() -> None:
-    if cloud_enabled():
-        reset_match_cloud()
-    st.session_state.events = []
-    st.session_state.video_clips = []
-    st.session_state.score_team = 0
-    st.session_state.score_opponent = 0
-    st.session_state.auto_notes = ""
-    st.session_state.halftime_report = ""
-    st.session_state.confirm_reset = False
-    clear_pending_tag()
-
-# --------------------------------------------------
 # Screens
 # --------------------------------------------------
 def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
@@ -1728,7 +1356,7 @@ def render_report_screen(df: pd.DataFrame) -> None:
         st.text_area("Rustanalyse", st.session_state.halftime_report, height=200)
     st.markdown("### Volledig coachrapport")
     report_text = st.session_state.auto_notes
-    st.text_area("Rapport", report_text, height=320)
+    st.text_area("Rapport", report_text, height=420)
     st.markdown("### Statistieken per kwart")
     quarter_df = build_quarter_stats_df(df)
     st.dataframe(quarter_df, use_container_width=True, hide_index=True)
