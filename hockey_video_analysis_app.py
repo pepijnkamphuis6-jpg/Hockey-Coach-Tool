@@ -77,12 +77,15 @@ def render_logout_button() -> None:
             st.session_state.authenticated = False
             st.session_state.user_role = None
             st.rerun()
+
+
 def has_edit_rights() -> bool:
     return st.session_state.get("user_role") in ["coach", "assistent", "analist"]
 
 
 def is_viewer() -> bool:
     return st.session_state.get("user_role") == "viewer"
+
 
 require_password()
 
@@ -424,42 +427,6 @@ def build_entry_heatmap(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_quarter_stats_df(df: pd.DataFrame) -> pd.DataFrame:
-
-def build_event_summary_per_quarter(df: pd.DataFrame) -> dict:
-    summary = {}
-    if df.empty:
-        return summary
-
-    for quarter in QUARTERS:
-        qdf = df[df["quarter"] == quarter].copy()
-
-        quarter_summary = {
-            st.session_state.team_name: [],
-            st.session_state.opponent_name: [],
-        }
-
-        for team in [st.session_state.team_name, st.session_state.opponent_name]:
-            tdf = qdf[qdf["team"] == team]
-            if tdf.empty:
-                quarter_summary[team] = []
-                continue
-
-            counts = (
-                tdf.groupby("event")
-                .size()
-                .reset_index(name="count")
-                .sort_values(["count", "event"], ascending=[False, True])
-            )
-
-            items = []
-            for _, row in counts.iterrows():
-                items.append(f"{row['event']}: {int(row['count'])}")
-
-            quarter_summary[team] = items
-
-        summary[quarter] = quarter_summary
-
-    return summary
     cols = [
         "Kwart",
         "Entries voor",
@@ -530,6 +497,43 @@ def build_event_summary_per_quarter(df: pd.DataFrame) -> dict:
         )
 
     return pd.DataFrame(rows)
+
+
+def build_event_summary_per_quarter(df: pd.DataFrame) -> dict:
+    summary = {}
+    if df.empty:
+        return summary
+
+    for quarter in QUARTERS:
+        qdf = df[df["quarter"] == quarter].copy()
+
+        quarter_summary = {
+            st.session_state.team_name: [],
+            st.session_state.opponent_name: [],
+        }
+
+        for team in [st.session_state.team_name, st.session_state.opponent_name]:
+            tdf = qdf[qdf["team"] == team]
+            if tdf.empty:
+                quarter_summary[team] = []
+                continue
+
+            counts = (
+                tdf.groupby("event")
+                .size()
+                .reset_index(name="count")
+                .sort_values(["count", "event"], ascending=[False, True])
+            )
+
+            items = []
+            for _, row in counts.iterrows():
+                items.append(f"{row['event']}: {int(row['count'])}")
+
+            quarter_summary[team] = items
+
+        summary[quarter] = quarter_summary
+
+    return summary
 
 
 def build_report_sections(df: pd.DataFrame) -> dict:
@@ -657,7 +661,10 @@ def generate_auto_notes(df: pd.DataFrame) -> str:
 
         lines.append("")
 
-    return "\n".join(lines)def generate_halftime_report(df: pd.DataFrame) -> str:
+    return "\n".join(lines)
+
+
+def generate_halftime_report(df: pd.DataFrame) -> str:
     if df.empty:
         return "Nog geen data voor rustanalyse."
     kpi = build_kpi_summary(df)
@@ -1033,12 +1040,11 @@ def reset_timer() -> None:
 
 @st.fragment(run_every="1s" if st.session_state.timer_running else None)
 def render_live_clock_bar() -> None:
-    c1, c2, c3, c4, c5 = st.columns([1.2, 1, 1, 1, 1])
+    c1, c2, c3, c4 = st.columns([1.2, 1, 1, 1])
     c1.metric("Live klok", current_time_str())
     c2.button("Start", use_container_width=True, on_click=start_timer)
     c3.button("Stop", use_container_width=True, on_click=stop_timer)
     c4.button("Reset klok", use_container_width=True, on_click=reset_timer)
-    c5.button("Volgend kwart", use_container_width=True, on_click=next_quarter)
 
 # --------------------------------------------------
 # Styling / header
@@ -1572,13 +1578,14 @@ def render_smart_tag_panel(team_name: str, prefix: str, color: str) -> None:
 
 
 def render_live_screen(df: pd.DataFrame) -> None:
+    render_match_scorebar()
 
-        if is_viewer():
+    if is_viewer():
         st.info("Viewer-modus: je kunt meekijken, maar geen events toevoegen of aanpassen.")
         st.markdown("### Laatste events")
         render_event_feed(df, max_items=10)
         return
-    render_match_scorebar()
+
     a1, a2, a3, a4 = st.columns(4)
     if a1.button("↩️ Undo", use_container_width=True):
         remove_last_event()
@@ -1592,6 +1599,7 @@ def render_live_screen(df: pd.DataFrame) -> None:
     if a4.button("⏱ Reset klok", use_container_width=True):
         reset_timer()
         st.rerun()
+
     if st.session_state.confirm_reset:
         st.warning("Weet je zeker dat je de wedstrijd wilt resetten?")
         r1, r2 = st.columns(2)
@@ -1604,29 +1612,22 @@ def render_live_screen(df: pd.DataFrame) -> None:
 
     mode = st.session_state.device_mode
     if mode == "iPhone":
-   if mode == "iPhone":
-    st.markdown("### 📱 iPhone coachmodus")
-    p1, p2 = st.columns(2)
-    with p1:
-        st.metric("Tijd", current_time_str())
-    with p2:
-        st.metric("Kwart", st.session_state.quarter)
+        st.markdown("### 📱 iPhone coachmodus")
+        p1, p2 = st.columns(2)
+        with p1:
+            st.metric("Tijd", current_time_str())
+        with p2:
+            st.metric("Kwart", st.session_state.quarter)
 
-    if is_viewer():
-        st.info("Viewer-modus: alleen meekijken.")
+        st.markdown("#### Eigen team")
+        render_smart_tag_panel(st.session_state.team_name, "iphone_team", TEAM_BLUE)
+
+        st.markdown("#### Tegenstander")
+        render_smart_tag_panel(st.session_state.opponent_name, "iphone_opp", OPP_RED)
+
         st.markdown("### Laatste events")
         render_event_feed(df, max_items=5)
         return
-
-    st.markdown("#### Eigen team")
-    render_smart_tag_panel(st.session_state.team_name, "iphone_team", TEAM_BLUE)
-
-    st.markdown("#### Tegenstander")
-    render_smart_tag_panel(st.session_state.opponent_name, "iphone_opp", OPP_RED)
-
-    st.markdown("### Laatste events")
-    render_event_feed(df, max_items=5)
-    return
 
     if mode == "MacBook":
         left, mid, right = st.columns([1.05, 1.05, 0.9])
