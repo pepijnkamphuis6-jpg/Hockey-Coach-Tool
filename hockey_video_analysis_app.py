@@ -383,22 +383,23 @@ VIDEO_TAGS = [
     "Leerclip",
 ]
 
-# Premium kleurschema — GitHub-dark geïnspireerd, rustig, één accentkleur (indigo)
-ACCENT = "#6366f1"            # indigo — hoofdaccent
-ACCENT_SOFT = "#818cf8"       # lichter indigo voor hover
+# Premium kleurschema — diep navy, sportief, professioneel
+ACCENT = "#3b82f6"            # vibrant blauw — hoofdaccent
+ACCENT_SOFT = "#60a5fa"       # lichtblauw voor hover/highlights
+ACCENT_GLOW = "rgba(59,130,246,0.18)"  # glow-effect
 TEAM_BLUE = "#3b82f6"         # eigen team
-OPP_RED = "#ef4444"           # tegenstander
+OPP_RED = "#f43f5e"           # tegenstander
 SUCCESS_GREEN = "#10b981"     # succes
 WARNING_ORANGE = "#f59e0b"    # waarschuwing
-CARD_BG = "#161b22"           # kaart-achtergrond
-CARD_BG_ELEVATED = "#21262d"  # iets lichtere kaart-achtergrond
-CARD_BORDER = "#21262d"       # kaart-rand
-CARD_BORDER_SOFT = "#30363d"  # zachte rand
-TEXT_MAIN = "#e6edf3"         # primaire tekst
-TEXT_SUB = "#8b949e"          # secundaire tekst
-TEXT_MUTED = "#6e7681"        # gedempte tekst
-PAGE_BG_1 = "#0d1117"         # paginakleur (GitHub dark)
-PAGE_BG_2 = "#0d1117"         # zelfde — flat i.p.v. gradient
+CARD_BG = "#0f1624"           # kaart-achtergrond (diep navy)
+CARD_BG_ELEVATED = "#141d2f"  # iets lichtere kaart voor hover
+CARD_BORDER = "#1a2540"       # kaart-rand
+CARD_BORDER_SOFT = "#1e2d47"  # zachte rand
+TEXT_MAIN = "#f1f5f9"         # primaire tekst
+TEXT_SUB = "#94a3b8"          # secundaire tekst
+TEXT_MUTED = "#64748b"        # gedempte tekst
+PAGE_BG_1 = "#080c18"         # paginakleur — diep donker navy
+PAGE_BG_2 = "#080c18"         # zelfde — flat
 
 
 # ==================================================
@@ -2733,13 +2734,13 @@ def render_live_clock_bar() -> None:
 def inject_custom_css() -> None:
     css = dedent(f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap');
 
         /* ── Scrollbar ── */
-        ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+        ::-webkit-scrollbar {{ width: 5px; height: 5px; }}
         ::-webkit-scrollbar-track {{ background: transparent; }}
-        ::-webkit-scrollbar-thumb {{ background: {CARD_BORDER_SOFT}; border-radius: 3px; }}
-        ::-webkit-scrollbar-thumb:hover {{ background: #484f58; }}
+        ::-webkit-scrollbar-thumb {{ background: {CARD_BORDER_SOFT}; border-radius: 10px; }}
+        ::-webkit-scrollbar-thumb:hover {{ background: #2a3a5c; }}
 
         /* ── Achtergrond ── */
         .stApp {{
@@ -2748,8 +2749,8 @@ def inject_custom_css() -> None:
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }}
         .block-container {{
-            padding-top: 1rem;
-            padding-bottom: 4rem;
+            padding-top: 1.2rem;
+            padding-bottom: 5rem;
             max-width: 1400px;
         }}
 
@@ -2757,11 +2758,11 @@ def inject_custom_css() -> None:
         h1, h2, h3, h4, h5, h6, p, span, label, div {{
             font-family: 'Inter', sans-serif;
         }}
-        h1 {{ color: {TEXT_MAIN}; font-weight: 700; letter-spacing: -0.02em; font-size: 24px; }}
-        h2 {{ color: {TEXT_MAIN}; font-weight: 700; letter-spacing: -0.01em; font-size: 20px; }}
-        h3 {{ color: {TEXT_MAIN}; font-weight: 600; font-size: 17px; }}
+        h1 {{ color: {TEXT_MAIN}; font-weight: 800; letter-spacing: -0.03em; font-size: 26px; }}
+        h2 {{ color: {TEXT_MAIN}; font-weight: 700; letter-spacing: -0.02em; font-size: 21px; }}
+        h3 {{ color: {TEXT_MAIN}; font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }}
         h4, h5 {{ color: {TEXT_MAIN}; font-weight: 600; }}
-        .stMarkdown p, .stMarkdown li {{ color: {TEXT_SUB}; line-height: 1.6; }}
+        .stMarkdown p, .stMarkdown li {{ color: {TEXT_SUB}; line-height: 1.65; }}
         .stCaption, [data-testid="stCaptionContainer"] {{ color: {TEXT_MUTED} !important; font-size: 12px !important; }}
 
         /* ── Inputs ── */
@@ -2769,189 +2770,198 @@ def inject_custom_css() -> None:
         .stNumberInput input,
         .stTextArea textarea,
         .stSelectbox div[data-baseweb="select"] > div {{
-            background: {CARD_BG} !important;
+            background: {CARD_BG_ELEVATED} !important;
             color: {TEXT_MAIN} !important;
             border: 1px solid {CARD_BORDER_SOFT} !important;
-            border-radius: 8px !important;
-            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            border-radius: 10px !important;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            font-size: 14px !important;
         }}
         .stTextInput input:focus,
         .stNumberInput input:focus,
         .stTextArea textarea:focus {{
             border-color: {ACCENT} !important;
-            box-shadow: 0 0 0 3px rgba(99,102,241,0.15) !important;
+            box-shadow: 0 0 0 3px {ACCENT_GLOW} !important;
             outline: none !important;
         }}
         .stTextInput label, .stNumberInput label, .stTextArea label,
         .stSelectbox label, .stRadio label, .stMultiSelect label,
         .stSlider label, .stFileUploader label, .stDateInput label {{
             color: {TEXT_SUB} !important;
-            font-weight: 500 !important;
-            font-size: 13px !important;
+            font-weight: 600 !important;
+            font-size: 12px !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.05em !important;
         }}
-        .stSelectbox div[data-baseweb="select"] > div {{ min-height: 40px; }}
+        .stSelectbox div[data-baseweb="select"] > div {{ min-height: 42px; }}
 
         /* ── Knoppen ── */
         div.stButton > button {{
-            border-radius: 8px;
+            border-radius: 10px;
             border: 1px solid {CARD_BORDER_SOFT};
             background: {CARD_BG_ELEVATED};
             color: {TEXT_MAIN};
             font-weight: 600;
-            font-size: 14px;
-            min-height: 40px;
-            transition: all 0.15s ease;
+            font-size: 13px;
+            min-height: 42px;
+            transition: all 0.18s ease;
             letter-spacing: 0.01em;
         }}
         div.stButton > button:hover {{
-            background: #2d333b;
+            background: #1a2540;
             border-color: {ACCENT};
             color: {TEXT_MAIN};
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         }}
         div.stButton > button[kind="primary"] {{
-            background: {ACCENT};
-            border-color: {ACCENT};
+            background: linear-gradient(135deg, {ACCENT} 0%, #2563eb 100%);
+            border-color: transparent;
             color: white;
-            box-shadow: 0 2px 8px rgba(99,102,241,0.3);
+            font-weight: 700;
+            box-shadow: 0 2px 12px rgba(59,130,246,0.35);
         }}
         div.stButton > button[kind="primary"]:hover {{
-            background: {ACCENT_SOFT};
-            border-color: {ACCENT_SOFT};
-            box-shadow: 0 4px 16px rgba(99,102,241,0.45);
-            transform: translateY(-1px);
+            background: linear-gradient(135deg, {ACCENT_SOFT} 0%, {ACCENT} 100%);
+            box-shadow: 0 6px 20px rgba(59,130,246,0.5);
+            transform: translateY(-2px);
         }}
         div.stDownloadButton > button {{
-            border-radius: 8px;
+            border-radius: 10px;
             border: 1px solid {CARD_BORDER_SOFT};
             background: {CARD_BG_ELEVATED};
             color: {TEXT_MAIN};
             font-weight: 600;
-            min-height: 40px;
-            transition: all 0.15s ease;
+            min-height: 42px;
+            transition: all 0.18s ease;
         }}
         div.stDownloadButton > button:hover {{
             border-color: {ACCENT};
-            background: #2d333b;
+            background: #1a2540;
+            transform: translateY(-1px);
         }}
 
         /* ── Metric widgets ── */
         [data-testid="stMetricValue"] {{
             color: {TEXT_MAIN} !important;
-            font-weight: 700 !important;
-            font-size: 28px !important;
-            letter-spacing: -0.02em;
+            font-weight: 800 !important;
+            font-size: 30px !important;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
         }}
         [data-testid="stMetricLabel"] {{
             color: {TEXT_MUTED} !important;
-            font-weight: 600 !important;
-            font-size: 11px !important;
+            font-weight: 700 !important;
+            font-size: 10px !important;
             text-transform: uppercase;
-            letter-spacing: 0.07em;
+            letter-spacing: 0.1em;
         }}
-        [data-testid="stMetricDelta"] {{ font-size: 13px !important; font-weight: 500 !important; }}
+        [data-testid="stMetricDelta"] {{ font-size: 12px !important; font-weight: 600 !important; }}
         [data-testid="stMetric"] {{
             background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 12px;
-            padding: 16px 20px;
-            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            border: 1px solid {CARD_BORDER};
+            border-radius: 14px;
+            padding: 18px 22px;
+            transition: all 0.2s ease;
         }}
         [data-testid="stMetric"]:hover {{
-            border-color: rgba(99,102,241,0.45);
-            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            border-color: rgba(59,130,246,0.4);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+            transform: translateY(-1px);
         }}
 
         /* ── Data-tabellen ── */
         .stDataFrame {{
             background: {CARD_BG};
-            border-radius: 12px;
-            border: 1px solid {CARD_BORDER_SOFT};
+            border-radius: 14px;
+            border: 1px solid {CARD_BORDER};
             overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
         }}
         .stDataFrame [data-testid="stDataFrameResizable"] {{
-            border-radius: 12px !important;
+            border-radius: 14px !important;
         }}
 
         /* ── Container met border ── */
         [data-testid="stVerticalBlockBorderWrapper"] {{
             background: {CARD_BG} !important;
-            border: 1px solid {CARD_BORDER_SOFT} !important;
-            border-radius: 12px !important;
+            border: 1px solid {CARD_BORDER} !important;
+            border-radius: 14px !important;
         }}
 
         /* ── Expanders ── */
         [data-testid="stExpander"] {{
             background: {CARD_BG} !important;
-            border: 1px solid {CARD_BORDER_SOFT} !important;
-            border-radius: 12px !important;
+            border: 1px solid {CARD_BORDER} !important;
+            border-radius: 14px !important;
             overflow: hidden;
+            transition: border-color 0.2s ease;
         }}
+        [data-testid="stExpander"]:hover {{ border-color: {CARD_BORDER_SOFT} !important; }}
         [data-testid="stExpander"] summary {{
             background: {CARD_BG} !important;
-            padding: 14px 18px !important;
+            padding: 16px 20px !important;
             font-weight: 600 !important;
             font-size: 14px !important;
             color: {TEXT_MAIN} !important;
         }}
-        [data-testid="stExpander"] summary:hover {{
-            background: {CARD_BG_ELEVATED} !important;
-        }}
-        [data-testid="stExpander"] > div > div {{
-            padding: 0 18px 16px 18px !important;
-        }}
+        [data-testid="stExpander"] summary:hover {{ background: {CARD_BG_ELEVATED} !important; }}
+        [data-testid="stExpander"] > div > div {{ padding: 0 20px 18px 20px !important; }}
 
         /* ── st.tabs() ── */
         [data-testid="stTabs"] [role="tablist"] {{
-            gap: 4px;
-            border-bottom: 1px solid {CARD_BORDER_SOFT};
+            gap: 2px;
+            border-bottom: 1px solid {CARD_BORDER};
         }}
         [data-testid="stTabs"] [role="tab"] {{
             color: {TEXT_MUTED};
-            font-weight: 500;
-            font-size: 14px;
-            padding: 8px 16px;
+            font-weight: 600;
+            font-size: 13px;
+            padding: 10px 18px;
             border-radius: 8px 8px 0 0;
             border: none;
             background: transparent;
+            transition: all 0.15s ease;
         }}
         [data-testid="stTabs"] [role="tab"]:hover {{
             color: {TEXT_SUB};
-            background: rgba(255,255,255,0.04);
+            background: rgba(59,130,246,0.06);
         }}
         [data-testid="stTabs"] [role="tab"][aria-selected="true"] {{
             color: {ACCENT_SOFT};
-            font-weight: 600;
-            background: rgba(99,102,241,0.08);
+            font-weight: 700;
+            background: rgba(59,130,246,0.1);
         }}
         [data-testid="stTabs"] [data-baseweb="tab-highlight"] {{
             background-color: {ACCENT} !important;
             height: 2px !important;
+            border-radius: 2px 2px 0 0;
         }}
 
         /* ── Kaart (algemeen) ── */
         .safe-card {{
             background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 12px;
-            padding: 18px 20px;
+            border: 1px solid {CARD_BORDER};
+            border-radius: 14px;
+            padding: 20px 22px;
             height: 100%;
             min-height: 130px;
             transition: all 0.2s ease;
         }}
         .safe-card:hover {{
-            border-color: rgba(99,102,241,0.5);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            transform: translateY(-1px);
+            border-color: rgba(59,130,246,0.4);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+            transform: translateY(-2px);
         }}
         .safe-card-title {{
-            font-size: 11px; color: {TEXT_MUTED}; font-weight: 600;
-            text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;
+            font-size: 10px; color: {TEXT_MUTED}; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 10px;
         }}
         .safe-card-value {{
-            font-size: 28px; font-weight: 700; color: {TEXT_MAIN};
-            line-height: 1.1; margin-bottom: 6px; letter-spacing: -0.02em;
+            font-size: 30px; font-weight: 800; color: {TEXT_MAIN};
+            line-height: 1.1; margin-bottom: 6px; letter-spacing: -0.03em;
         }}
-        .safe-card-sub {{ color: {TEXT_SUB}; font-size: 13px; line-height: 1.4; }}
+        .safe-card-sub {{ color: {TEXT_SUB}; font-size: 13px; line-height: 1.5; }}
         .accent-blue {{ border-left: 3px solid {TEAM_BLUE}; }}
         .accent-red {{ border-left: 3px solid {OPP_RED}; }}
         .accent-green {{ border-left: 3px solid {SUCCESS_GREEN}; }}
@@ -2960,51 +2970,57 @@ def inject_custom_css() -> None:
         /* ── Tool-kaarten op homescherm ── */
         .tool-card {{
             background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 14px;
-            padding: 24px 22px 20px 22px;
-            min-height: 200px;
-            transition: all 0.2s ease;
+            border: 1px solid {CARD_BORDER};
+            border-radius: 16px;
+            padding: 22px 22px 16px 22px;
+            min-height: 210px;
+            transition: all 0.22s ease;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
+            position: relative;
+            overflow: hidden;
+        }}
+        .tool-card::before {{
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, {ACCENT}, {ACCENT_SOFT});
+            opacity: 0;
+            transition: opacity 0.22s ease;
         }}
         .tool-card:hover {{
-            border-color: rgba(99,102,241,0.6);
+            border-color: rgba(59,130,246,0.45);
             background: {CARD_BG_ELEVATED};
-            box-shadow: 0 8px 32px rgba(99,102,241,0.12), 0 2px 8px rgba(0,0,0,0.3);
-            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+            transform: translateY(-3px);
         }}
-        .tool-card-icon {{
-            font-size: 32px;
-            line-height: 1;
-            margin-bottom: 4px;
+        .tool-card:hover::before {{ opacity: 1; }}
+        .tool-card-icon-wrap {{
+            width: 44px; height: 44px; border-radius: 12px;
+            background: linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0.05) 100%);
+            border: 1px solid rgba(59,130,246,0.2);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; margin-bottom: 6px;
         }}
         .tool-card-title {{
-            font-size: 17px;
-            font-weight: 700;
-            color: {TEXT_MAIN};
-            letter-spacing: -0.01em;
+            font-size: 16px; font-weight: 700; color: {TEXT_MAIN};
+            letter-spacing: -0.02em; line-height: 1.2;
         }}
         .tool-card-desc {{
-            color: {TEXT_SUB};
-            font-size: 13px;
-            line-height: 1.5;
-            flex: 1;
+            color: {TEXT_SUB}; font-size: 13px; line-height: 1.55; flex: 1;
         }}
         .tool-card-tabs {{
-            color: {TEXT_MUTED};
-            font-size: 11px;
-            font-weight: 500;
-            letter-spacing: 0.02em;
-            text-transform: uppercase;
-            margin-top: 4px;
+            color: {TEXT_MUTED}; font-size: 10.5px; font-weight: 600;
+            letter-spacing: 0.05em; text-transform: uppercase;
+            padding-top: 10px; border-top: 1px solid {CARD_BORDER};
         }}
 
         /* ── Mini event-feed ── */
         .mini-feed {{
             background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT};
+            border: 1px solid {CARD_BORDER};
             border-radius: 10px;
             padding: 10px 14px;
             margin-bottom: 6px;
@@ -3022,93 +3038,78 @@ def inject_custom_css() -> None:
             letter-spacing: 0.02em;
         }}
         .pill-blue {{ background: rgba(59,130,246,0.15); color: #93c5fd; }}
-        .pill-red {{ background: rgba(239,68,68,0.15); color: #fca5a5; }}
+        .pill-red {{ background: rgba(244,63,94,0.15); color: #fda4af; }}
         .pill-green {{ background: rgba(16,185,129,0.15); color: #6ee7b7; }}
         .pill-gray {{ background: rgba(156,163,175,0.12); color: {TEXT_SUB}; }}
 
         /* ── Hero navbar ── */
         .hero {{
-            background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 14px;
-            padding: 16px 24px;
-            margin-bottom: 14px;
+            background: linear-gradient(135deg, {CARD_BG} 0%, #0d1830 100%);
+            border: 1px solid {CARD_BORDER};
+            border-radius: 16px;
+            padding: 14px 24px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.25);
         }}
         .hero-top {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
+            display: flex; justify-content: space-between;
+            align-items: center; gap: 16px; flex-wrap: wrap;
         }}
         .hero-brand {{ display: flex; align-items: center; gap: 14px; }}
         .hero-logo {{
-            width: 38px; height: 38px; border-radius: 10px;
-            background: linear-gradient(135deg, {ACCENT} 0%, {ACCENT_SOFT} 100%);
+            width: 40px; height: 40px; border-radius: 11px;
+            background: linear-gradient(135deg, {ACCENT} 0%, #1d4ed8 100%);
             display: flex; align-items: center; justify-content: center;
-            color: white; font-weight: 800; font-size: 16px;
-            box-shadow: 0 4px 12px rgba(99,102,241,0.35);
-            flex-shrink: 0;
+            color: white; font-weight: 900; font-size: 15px;
+            box-shadow: 0 4px 16px rgba(59,130,246,0.4);
+            flex-shrink: 0; letter-spacing: -0.03em;
         }}
         .hero-title {{
-            font-size: 18px; font-weight: 700; color: {TEXT_MAIN};
-            letter-spacing: -0.02em; line-height: 1.2;
+            font-size: 17px; font-weight: 800; color: {TEXT_MAIN};
+            letter-spacing: -0.03em; line-height: 1.2;
         }}
-        .hero-sub {{ color: {TEXT_MUTED}; font-size: 12px; margin-top: 1px; }}
+        .hero-sub {{ color: {TEXT_MUTED}; font-size: 12px; margin-top: 2px; font-weight: 500; }}
         .status-chip {{
             display: inline-flex; align-items: center; gap: 5px;
             background: rgba(255,255,255,0.04);
             border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 20px;
-            padding: 4px 10px;
-            font-size: 12px; font-weight: 500; color: {TEXT_MUTED};
-            white-space: nowrap;
+            border-radius: 20px; padding: 5px 12px;
+            font-size: 11px; font-weight: 600; color: {TEXT_MUTED};
+            white-space: nowrap; letter-spacing: 0.02em;
         }}
-        .status-chip.ok {{ color: #6ee7b7; border-color: rgba(16,185,129,0.3); }}
+        .status-chip.ok {{
+            color: #34d399; border-color: rgba(16,185,129,0.3);
+            background: rgba(16,185,129,0.06);
+        }}
         .status-chip.live {{
-            color: #fca5a5;
-            border-color: rgba(239,68,68,0.3);
-            background: rgba(239,68,68,0.06);
+            color: #fb7185; border-color: rgba(244,63,94,0.35);
+            background: rgba(244,63,94,0.08);
         }}
         .status-chip.live .dot {{
             width: 6px; height: 6px; border-radius: 50%;
-            background: {OPP_RED};
-            box-shadow: 0 0 6px {OPP_RED};
+            background: {OPP_RED}; box-shadow: 0 0 8px {OPP_RED};
             animation: pulse 1.8s infinite;
         }}
         @keyframes pulse {{
-            0%, 100% {{ opacity: 1; }}
-            50% {{ opacity: 0.3; }}
+            0%, 100% {{ opacity: 1; transform: scale(1); }}
+            50% {{ opacity: 0.4; transform: scale(0.85); }}
         }}
 
-        /* ── Topbar (logout-rij) ── */
+        /* ── Topbar ── */
         .cs-topbar {{
-            display: flex;
-            align-items: center;
+            display: flex; align-items: center;
             justify-content: space-between;
-            padding: 6px 4px 12px 4px;
-            gap: 8px;
+            padding: 6px 4px 12px 4px; gap: 8px;
         }}
-        .cs-topbar-team {{
-            font-size: 13px;
-            color: {TEXT_SUB};
-            font-weight: 500;
-        }}
-        .cs-topbar-team strong {{
-            color: {TEXT_MAIN};
-            font-weight: 600;
-        }}
+        .cs-topbar-team {{ font-size: 13px; color: {TEXT_SUB}; font-weight: 500; }}
+        .cs-topbar-team strong {{ color: {TEXT_MAIN}; font-weight: 600; }}
 
         /* ── Score-bar ── */
         .scorebar {{
-            background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 14px;
-            padding: 18px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 16px;
+            background: {CARD_BG}; border: 1px solid {CARD_BORDER};
+            border-radius: 14px; padding: 18px 24px;
+            display: flex; align-items: center;
+            justify-content: space-between; margin-bottom: 16px;
         }}
         .scorebar-team {{ flex: 1; text-align: center; }}
         .scorebar-team-name {{
@@ -3125,49 +3126,45 @@ def inject_custom_css() -> None:
         .scorebar-score-team-own {{ color: {TEAM_BLUE}; }}
         .scorebar-score-team-opp {{ color: {OPP_RED}; }}
 
-        /* ── Team header boven tag-paneel ── */
+        /* ── Team header ── */
         .team-header {{
             padding: 12px 18px; border-radius: 10px;
             font-weight: 600; font-size: 15px; color: white;
-            margin-bottom: 12px; text-align: center;
-            letter-spacing: -0.01em;
+            margin-bottom: 12px; text-align: center; letter-spacing: -0.01em;
         }}
 
         /* ── Navigatie-tab balk ── */
         .cs-nav-wrap {{
-            background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 12px;
-            padding: 5px;
-            margin-bottom: 16px;
-            display: flex;
-            gap: 4px;
+            background: {CARD_BG}; border: 1px solid {CARD_BORDER};
+            border-radius: 14px; padding: 5px; margin-bottom: 18px;
+            display: flex; gap: 4px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
         }}
 
         /* ── Inlogscherm ── */
         .login-shell {{
-            max-width: 440px; margin: 48px auto 0 auto;
-            background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 16px;
-            padding: 44px 36px;
-            box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+            max-width: 460px; margin: 56px auto 0 auto;
+            background: linear-gradient(160deg, {CARD_BG} 0%, #0b1220 100%);
+            border: 1px solid {CARD_BORDER_SOFT}; border-radius: 20px;
+            padding: 48px 40px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(59,130,246,0.06);
         }}
         .login-logo {{
-            width: 56px; height: 56px; border-radius: 14px;
-            background: linear-gradient(135deg, {ACCENT} 0%, {ACCENT_SOFT} 100%);
+            width: 64px; height: 64px; border-radius: 18px;
+            background: linear-gradient(135deg, {ACCENT} 0%, #1d4ed8 100%);
             display: flex; align-items: center; justify-content: center;
-            color: white; font-weight: 800; font-size: 24px;
-            margin: 0 auto 20px auto;
-            box-shadow: 0 8px 24px rgba(99,102,241,0.4);
+            color: white; font-weight: 900; font-size: 26px;
+            margin: 0 auto 24px auto;
+            box-shadow: 0 10px 30px rgba(59,130,246,0.45);
+            letter-spacing: -0.04em;
         }}
         .login-title {{
-            text-align: center; font-size: 22px; font-weight: 700;
-            color: {TEXT_MAIN}; letter-spacing: -0.02em; margin-bottom: 4px;
+            text-align: center; font-size: 26px; font-weight: 800;
+            color: {TEXT_MAIN}; letter-spacing: -0.03em; margin-bottom: 6px;
         }}
         .login-sub {{
-            text-align: center; color: {TEXT_MUTED}; font-size: 13px;
-            margin-bottom: 28px; line-height: 1.5;
+            text-align: center; color: {TEXT_MUTED}; font-size: 14px;
+            margin-bottom: 32px; line-height: 1.55;
         }}
 
         /* ── Verberg Streamlit-menu & footer ── */
@@ -3179,44 +3176,38 @@ def inject_custom_css() -> None:
 
         /* ── Alerts ── */
         [data-testid="stAlert"] {{
-            border-radius: 10px;
-            border-width: 1px;
-            font-size: 13px;
+            border-radius: 12px; border-width: 1px;
+            font-size: 13px; font-weight: 500;
         }}
 
         /* ── Divider ── */
-        hr {{ border-color: {CARD_BORDER_SOFT} !important; margin: 18px 0 !important; }}
+        hr {{ border-color: {CARD_BORDER} !important; margin: 20px 0 !important; opacity: 0.7; }}
 
         /* ── Form containers ── */
         [data-testid="stForm"] {{
             background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT} !important;
-            border-radius: 12px !important;
+            border: 1px solid {CARD_BORDER} !important;
+            border-radius: 14px !important;
             padding: 4px !important;
         }}
 
         /* ── Welcome sectie op homescherm ── */
-        .cs-welcome {{
-            padding: 4px 2px 16px 2px;
-        }}
+        .cs-welcome {{ padding: 8px 2px 20px 2px; }}
         .cs-welcome-title {{
-            font-size: 22px;
-            font-weight: 700;
-            color: {TEXT_MAIN};
-            letter-spacing: -0.02em;
+            font-size: 26px; font-weight: 800; color: {TEXT_MAIN};
+            letter-spacing: -0.03em; line-height: 1.2;
+        }}
+        .cs-welcome-title span {{
+            background: linear-gradient(90deg, {ACCENT_SOFT}, {ACCENT});
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
         }}
         .cs-welcome-sub {{
-            color: {TEXT_SUB};
-            font-size: 14px;
-            margin-top: 4px;
+            color: {TEXT_SUB}; font-size: 14px; margin-top: 6px;
         }}
         .cs-section-label {{
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: {TEXT_MUTED};
-            margin: 20px 0 10px 2px;
+            font-size: 10px; font-weight: 800; text-transform: uppercase;
+            letter-spacing: 0.12em; color: {TEXT_MUTED}; margin: 24px 0 12px 2px;
         }}
 
         </style>
@@ -7308,7 +7299,7 @@ def render_tool_selector() -> None:
             with col:
                 st.markdown(
                     f'<div class="tool-card">'
-                    f'<div class="tool-card-icon">{tool["icon"]}</div>'
+                    f'<div class="tool-card-icon-wrap">{tool["icon"]}</div>'
                     f'<div class="tool-card-title">{tool["title"]}</div>'
                     f'<div class="tool-card-desc">{tool["desc"]}</div>'
                     f'<div class="tool-card-tabs">{tool["tabs"]}</div>'
