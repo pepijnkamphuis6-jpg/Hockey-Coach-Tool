@@ -256,17 +256,17 @@ def require_password() -> None:
 
 
 def render_logout_button() -> None:
-    c1, c2, c3 = st.columns([3, 1, 1])
-    with c1:
-        team_name = st.session_state.get("active_team_name") or "—"
-        role = st.session_state.get("user_role", "onbekend")
-        st.caption(f"Team: **{team_name}** • Rol: {role}")
-    with c2:
-        if st.button("⇐ Tools", use_container_width=True, key="back_to_tools_btn"):
+    active_tool = st.session_state.get("active_tool")
+    _, btn_col1, btn_col2, _ = st.columns([6, 1, 1, 0.1])
+    with btn_col1:
+        label = "🏠  Home" if active_tool else "🏠  Home"
+        if st.button(label, use_container_width=True, key="back_to_tools_btn",
+                     help="Terug naar het tool-overzicht"):
             st.session_state.active_tool = None
             st.rerun()
-    with c3:
-        if st.button("Log uit", use_container_width=True, key="logout_btn"):
+    with btn_col2:
+        if st.button("↩  Uitloggen", use_container_width=True, key="logout_btn",
+                     help="Uitloggen en terug naar teamkeuze"):
             st.session_state.authenticated = False
             st.session_state.user_role = None
             st.session_state.active_team_id = None
@@ -383,22 +383,22 @@ VIDEO_TAGS = [
     "Leerclip",
 ]
 
-# Premium kleurschema — donker, rustig, één accentkleur (indigo)
-ACCENT = "#6366f1"          # indigo — hoofdaccent
-ACCENT_SOFT = "#818cf8"     # lichter indigo voor hover/subtielere elementen
-TEAM_BLUE = "#3b82f6"        # eigen team
-OPP_RED = "#ef4444"          # tegenstander
-SUCCESS_GREEN = "#10b981"    # succes
-WARNING_ORANGE = "#f59e0b"   # waarschuwing
-CARD_BG = "#111827"           # kaart-achtergrond (donker)
-CARD_BG_ELEVATED = "#1f2937"  # iets lichtere kaart-achtergrond
-CARD_BORDER = "#1f2937"       # kaart-rand
-CARD_BORDER_SOFT = "#374151"  # zachte rand
-TEXT_MAIN = "#f9fafb"         # primaire tekst (licht)
-TEXT_SUB = "#9ca3af"          # secundaire tekst (grijs)
-TEXT_MUTED = "#6b7280"        # gedempte tekst
-PAGE_BG_1 = "#0b1120"         # paginakleur bovenaan (diep donkerblauw)
-PAGE_BG_2 = "#0f172a"         # paginakleur onderaan
+# Premium kleurschema — GitHub-dark geïnspireerd, rustig, één accentkleur (indigo)
+ACCENT = "#6366f1"            # indigo — hoofdaccent
+ACCENT_SOFT = "#818cf8"       # lichter indigo voor hover
+TEAM_BLUE = "#3b82f6"         # eigen team
+OPP_RED = "#ef4444"           # tegenstander
+SUCCESS_GREEN = "#10b981"     # succes
+WARNING_ORANGE = "#f59e0b"    # waarschuwing
+CARD_BG = "#161b22"           # kaart-achtergrond
+CARD_BG_ELEVATED = "#21262d"  # iets lichtere kaart-achtergrond
+CARD_BORDER = "#21262d"       # kaart-rand
+CARD_BORDER_SOFT = "#30363d"  # zachte rand
+TEXT_MAIN = "#e6edf3"         # primaire tekst
+TEXT_SUB = "#8b949e"          # secundaire tekst
+TEXT_MUTED = "#6e7681"        # gedempte tekst
+PAGE_BG_1 = "#0d1117"         # paginakleur (GitHub dark)
+PAGE_BG_2 = "#0d1117"         # zelfde — flat i.p.v. gradient
 
 
 # ==================================================
@@ -2735,53 +2735,76 @@ def inject_custom_css() -> None:
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-        /* Globale achtergrond — donkere gradient */
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar {{ width: 6px; height: 6px; }}
+        ::-webkit-scrollbar-track {{ background: transparent; }}
+        ::-webkit-scrollbar-thumb {{ background: {CARD_BORDER_SOFT}; border-radius: 3px; }}
+        ::-webkit-scrollbar-thumb:hover {{ background: #484f58; }}
+
+        /* ── Achtergrond ── */
         .stApp {{
-            background: linear-gradient(180deg, {PAGE_BG_1} 0%, {PAGE_BG_2} 100%);
+            background: {PAGE_BG_1};
             color: {TEXT_MAIN};
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }}
-        .block-container {{ padding-top: 1.2rem; padding-bottom: 3rem; max-width: 1400px; }}
+        .block-container {{
+            padding-top: 1rem;
+            padding-bottom: 4rem;
+            max-width: 1400px;
+        }}
 
-        /* Typografie */
-        h1, h2, h3, h4, h5, h6, p, span, label, div {{ font-family: 'Inter', sans-serif; }}
-        h1 {{ color: {TEXT_MAIN}; font-weight: 700; letter-spacing: -0.02em; }}
-        h2 {{ color: {TEXT_MAIN}; font-weight: 700; letter-spacing: -0.01em; }}
-        h3, h4, h5 {{ color: {TEXT_MAIN}; font-weight: 600; }}
-        .stMarkdown p, .stMarkdown li {{ color: {TEXT_SUB}; }}
+        /* ── Typografie ── */
+        h1, h2, h3, h4, h5, h6, p, span, label, div {{
+            font-family: 'Inter', sans-serif;
+        }}
+        h1 {{ color: {TEXT_MAIN}; font-weight: 700; letter-spacing: -0.02em; font-size: 24px; }}
+        h2 {{ color: {TEXT_MAIN}; font-weight: 700; letter-spacing: -0.01em; font-size: 20px; }}
+        h3 {{ color: {TEXT_MAIN}; font-weight: 600; font-size: 17px; }}
+        h4, h5 {{ color: {TEXT_MAIN}; font-weight: 600; }}
+        .stMarkdown p, .stMarkdown li {{ color: {TEXT_SUB}; line-height: 1.6; }}
+        .stCaption, [data-testid="stCaptionContainer"] {{ color: {TEXT_MUTED} !important; font-size: 12px !important; }}
 
-        /* Streamlit tekst-elementen donker maken */
-        .stCaption, [data-testid="stCaptionContainer"] {{ color: {TEXT_MUTED} !important; }}
-
-        /* Inputs */
-        .stTextInput input, .stNumberInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {{
+        /* ── Inputs ── */
+        .stTextInput input,
+        .stNumberInput input,
+        .stTextArea textarea,
+        .stSelectbox div[data-baseweb="select"] > div {{
             background: {CARD_BG} !important;
             color: {TEXT_MAIN} !important;
             border: 1px solid {CARD_BORDER_SOFT} !important;
-            border-radius: 10px !important;
+            border-radius: 8px !important;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }}
-        .stTextInput label, .stNumberInput label, .stTextArea label, .stSelectbox label,
-        .stRadio label, .stMultiSelect label, .stSlider label, .stFileUploader label {{
+        .stTextInput input:focus,
+        .stNumberInput input:focus,
+        .stTextArea textarea:focus {{
+            border-color: {ACCENT} !important;
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.15) !important;
+            outline: none !important;
+        }}
+        .stTextInput label, .stNumberInput label, .stTextArea label,
+        .stSelectbox label, .stRadio label, .stMultiSelect label,
+        .stSlider label, .stFileUploader label, .stDateInput label {{
             color: {TEXT_SUB} !important;
             font-weight: 500 !important;
             font-size: 13px !important;
         }}
-        .stSelectbox div[data-baseweb="select"] > div {{ min-height: 42px; }}
+        .stSelectbox div[data-baseweb="select"] > div {{ min-height: 40px; }}
 
-        /* Knoppen — primary is indigo, secondary is subtiel */
+        /* ── Knoppen ── */
         div.stButton > button {{
-            border-radius: 10px;
+            border-radius: 8px;
             border: 1px solid {CARD_BORDER_SOFT};
-            background: {CARD_BG};
+            background: {CARD_BG_ELEVATED};
             color: {TEXT_MAIN};
             font-weight: 600;
             font-size: 14px;
-            min-height: 42px;
+            min-height: 40px;
             transition: all 0.15s ease;
-            letter-spacing: 0;
+            letter-spacing: 0.01em;
         }}
         div.stButton > button:hover {{
-            background: {CARD_BG_ELEVATED};
+            background: #2d333b;
             border-color: {ACCENT};
             color: {TEXT_MAIN};
         }}
@@ -2789,55 +2812,143 @@ def inject_custom_css() -> None:
             background: {ACCENT};
             border-color: {ACCENT};
             color: white;
+            box-shadow: 0 2px 8px rgba(99,102,241,0.3);
         }}
         div.stButton > button[kind="primary"]:hover {{
             background: {ACCENT_SOFT};
             border-color: {ACCENT_SOFT};
+            box-shadow: 0 4px 16px rgba(99,102,241,0.45);
+            transform: translateY(-1px);
         }}
         div.stDownloadButton > button {{
-            border-radius: 10px;
+            border-radius: 8px;
             border: 1px solid {CARD_BORDER_SOFT};
-            background: {CARD_BG};
+            background: {CARD_BG_ELEVATED};
             color: {TEXT_MAIN};
             font-weight: 600;
-            min-height: 42px;
+            min-height: 40px;
+            transition: all 0.15s ease;
         }}
         div.stDownloadButton > button:hover {{
             border-color: {ACCENT};
+            background: #2d333b;
         }}
 
-        /* Metric widgets */
-        [data-testid="stMetricValue"] {{ color: {TEXT_MAIN} !important; font-weight: 700 !important; font-size: 32px !important; }}
-        [data-testid="stMetricLabel"] {{ color: {TEXT_MUTED} !important; font-weight: 500 !important; font-size: 12px !important; text-transform: uppercase; letter-spacing: 0.06em; }}
-        [data-testid="stMetric"] {{ background: {CARD_BG}; border: 1px solid {CARD_BORDER_SOFT}; border-radius: 12px; padding: 14px 16px; }}
-
-        /* Data-tabellen */
-        .stDataFrame {{ background: {CARD_BG}; border-radius: 12px; }}
-
-        /* Container met border */
-        [data-testid="stVerticalBlockBorderWrapper"] {{
+        /* ── Metric widgets ── */
+        [data-testid="stMetricValue"] {{
+            color: {TEXT_MAIN} !important;
+            font-weight: 700 !important;
+            font-size: 28px !important;
+            letter-spacing: -0.02em;
+        }}
+        [data-testid="stMetricLabel"] {{
+            color: {TEXT_MUTED} !important;
+            font-weight: 600 !important;
+            font-size: 11px !important;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+        }}
+        [data-testid="stMetricDelta"] {{ font-size: 13px !important; font-weight: 500 !important; }}
+        [data-testid="stMetric"] {{
             background: {CARD_BG};
-            border: 1px solid {CARD_BORDER_SOFT} !important;
-            border-radius: 14px !important;
+            border: 1px solid {CARD_BORDER_SOFT};
+            border-radius: 12px;
+            padding: 16px 20px;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }}
+        [data-testid="stMetric"]:hover {{
+            border-color: rgba(99,102,241,0.45);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
         }}
 
-        /* Kaart (algemeen) */
+        /* ── Data-tabellen ── */
+        .stDataFrame {{
+            background: {CARD_BG};
+            border-radius: 12px;
+            border: 1px solid {CARD_BORDER_SOFT};
+            overflow: hidden;
+        }}
+        .stDataFrame [data-testid="stDataFrameResizable"] {{
+            border-radius: 12px !important;
+        }}
+
+        /* ── Container met border ── */
+        [data-testid="stVerticalBlockBorderWrapper"] {{
+            background: {CARD_BG} !important;
+            border: 1px solid {CARD_BORDER_SOFT} !important;
+            border-radius: 12px !important;
+        }}
+
+        /* ── Expanders ── */
+        [data-testid="stExpander"] {{
+            background: {CARD_BG} !important;
+            border: 1px solid {CARD_BORDER_SOFT} !important;
+            border-radius: 12px !important;
+            overflow: hidden;
+        }}
+        [data-testid="stExpander"] summary {{
+            background: {CARD_BG} !important;
+            padding: 14px 18px !important;
+            font-weight: 600 !important;
+            font-size: 14px !important;
+            color: {TEXT_MAIN} !important;
+        }}
+        [data-testid="stExpander"] summary:hover {{
+            background: {CARD_BG_ELEVATED} !important;
+        }}
+        [data-testid="stExpander"] > div > div {{
+            padding: 0 18px 16px 18px !important;
+        }}
+
+        /* ── st.tabs() ── */
+        [data-testid="stTabs"] [role="tablist"] {{
+            gap: 4px;
+            border-bottom: 1px solid {CARD_BORDER_SOFT};
+        }}
+        [data-testid="stTabs"] [role="tab"] {{
+            color: {TEXT_MUTED};
+            font-weight: 500;
+            font-size: 14px;
+            padding: 8px 16px;
+            border-radius: 8px 8px 0 0;
+            border: none;
+            background: transparent;
+        }}
+        [data-testid="stTabs"] [role="tab"]:hover {{
+            color: {TEXT_SUB};
+            background: rgba(255,255,255,0.04);
+        }}
+        [data-testid="stTabs"] [role="tab"][aria-selected="true"] {{
+            color: {ACCENT_SOFT};
+            font-weight: 600;
+            background: rgba(99,102,241,0.08);
+        }}
+        [data-testid="stTabs"] [data-baseweb="tab-highlight"] {{
+            background-color: {ACCENT} !important;
+            height: 2px !important;
+        }}
+
+        /* ── Kaart (algemeen) ── */
         .safe-card {{
             background: {CARD_BG};
             border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 14px;
+            border-radius: 12px;
             padding: 18px 20px;
             height: 100%;
             min-height: 130px;
-            transition: border-color 0.15s ease;
+            transition: all 0.2s ease;
         }}
-        .safe-card:hover {{ border-color: {ACCENT}; }}
+        .safe-card:hover {{
+            border-color: rgba(99,102,241,0.5);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            transform: translateY(-1px);
+        }}
         .safe-card-title {{
             font-size: 11px; color: {TEXT_MUTED}; font-weight: 600;
             text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;
         }}
         .safe-card-value {{
-            font-size: 30px; font-weight: 700; color: {TEXT_MAIN};
+            font-size: 28px; font-weight: 700; color: {TEXT_MAIN};
             line-height: 1.1; margin-bottom: 6px; letter-spacing: -0.02em;
         }}
         .safe-card-sub {{ color: {TEXT_SUB}; font-size: 13px; line-height: 1.4; }}
@@ -2846,15 +2957,65 @@ def inject_custom_css() -> None:
         .accent-green {{ border-left: 3px solid {SUCCESS_GREEN}; }}
         .accent-orange {{ border-left: 3px solid {WARNING_ORANGE}; }}
 
-        /* Mini event-feed */
-        .mini-feed {{
-            background: {CARD_BG}; border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
-            color: {TEXT_MAIN}; font-size: 14px;
+        /* ── Tool-kaarten op homescherm ── */
+        .tool-card {{
+            background: {CARD_BG};
+            border: 1px solid {CARD_BORDER_SOFT};
+            border-radius: 14px;
+            padding: 24px 22px 20px 22px;
+            min-height: 200px;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }}
+        .tool-card:hover {{
+            border-color: rgba(99,102,241,0.6);
+            background: {CARD_BG_ELEVATED};
+            box-shadow: 0 8px 32px rgba(99,102,241,0.12), 0 2px 8px rgba(0,0,0,0.3);
+            transform: translateY(-2px);
+        }}
+        .tool-card-icon {{
+            font-size: 32px;
+            line-height: 1;
+            margin-bottom: 4px;
+        }}
+        .tool-card-title {{
+            font-size: 17px;
+            font-weight: 700;
+            color: {TEXT_MAIN};
+            letter-spacing: -0.01em;
+        }}
+        .tool-card-desc {{
+            color: {TEXT_SUB};
+            font-size: 13px;
+            line-height: 1.5;
+            flex: 1;
+        }}
+        .tool-card-tabs {{
+            color: {TEXT_MUTED};
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }}
+
+        /* ── Mini event-feed ── */
+        .mini-feed {{
+            background: {CARD_BG};
+            border: 1px solid {CARD_BORDER_SOFT};
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-bottom: 6px;
+            color: {TEXT_MAIN};
+            font-size: 14px;
+            transition: border-color 0.15s ease;
+        }}
+        .mini-feed:hover {{ border-color: {CARD_BORDER_SOFT}; }}
         .mini-feed strong {{ color: {TEXT_MAIN}; font-weight: 600; }}
 
-        /* Pillen / badges */
+        /* ── Pillen / badges ── */
         .pill {{
             display: inline-block; padding: 3px 9px; border-radius: 6px;
             font-size: 11px; font-weight: 600; margin-right: 6px;
@@ -2863,57 +3024,95 @@ def inject_custom_css() -> None:
         .pill-blue {{ background: rgba(59,130,246,0.15); color: #93c5fd; }}
         .pill-red {{ background: rgba(239,68,68,0.15); color: #fca5a5; }}
         .pill-green {{ background: rgba(16,185,129,0.15); color: #6ee7b7; }}
-        .pill-gray {{ background: rgba(156,163,175,0.15); color: {TEXT_SUB}; }}
+        .pill-gray {{ background: rgba(156,163,175,0.12); color: {TEXT_SUB}; }}
 
-        /* Hero header */
+        /* ── Hero navbar ── */
         .hero {{
-            background: linear-gradient(135deg, {CARD_BG} 0%, {CARD_BG_ELEVATED} 100%);
+            background: {CARD_BG};
             border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 16px;
-            padding: 22px 26px;
-            margin-bottom: 16px;
+            border-radius: 14px;
+            padding: 16px 24px;
+            margin-bottom: 14px;
         }}
-        .hero-top {{ display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }}
-        .hero-brand {{ display:flex; align-items:center; gap:14px; }}
+        .hero-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }}
+        .hero-brand {{ display: flex; align-items: center; gap: 14px; }}
         .hero-logo {{
-            width: 40px; height: 40px; border-radius: 10px;
+            width: 38px; height: 38px; border-radius: 10px;
             background: linear-gradient(135deg, {ACCENT} 0%, {ACCENT_SOFT} 100%);
-            display:flex; align-items:center; justify-content:center;
-            color: white; font-weight: 800; font-size: 18px;
-            box-shadow: 0 4px 14px rgba(99,102,241,0.4);
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-weight: 800; font-size: 16px;
+            box-shadow: 0 4px 12px rgba(99,102,241,0.35);
+            flex-shrink: 0;
         }}
         .hero-title {{
-            font-size: 22px; font-weight: 700; color: {TEXT_MAIN};
-            letter-spacing: -0.02em; line-height: 1.1;
+            font-size: 18px; font-weight: 700; color: {TEXT_MAIN};
+            letter-spacing: -0.02em; line-height: 1.2;
         }}
-        .hero-sub {{ color: {TEXT_MUTED}; font-size: 13px; margin-top: 2px; }}
+        .hero-sub {{ color: {TEXT_MUTED}; font-size: 12px; margin-top: 1px; }}
         .status-chip {{
-            display: inline-flex; align-items: center; gap: 6px;
-            background: rgba(255,255,255,0.03);
+            display: inline-flex; align-items: center; gap: 5px;
+            background: rgba(255,255,255,0.04);
             border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 8px; padding: 6px 12px;
-            font-size: 12px; font-weight: 500; color: {TEXT_SUB};
+            border-radius: 20px;
+            padding: 4px 10px;
+            font-size: 12px; font-weight: 500; color: {TEXT_MUTED};
+            white-space: nowrap;
         }}
-        .status-chip.live {{ color: #fca5a5; border-color: rgba(239,68,68,0.3); }}
+        .status-chip.ok {{ color: #6ee7b7; border-color: rgba(16,185,129,0.3); }}
+        .status-chip.live {{
+            color: #fca5a5;
+            border-color: rgba(239,68,68,0.3);
+            background: rgba(239,68,68,0.06);
+        }}
         .status-chip.live .dot {{
-            width: 6px; height: 6px; border-radius: 50%; background: {OPP_RED};
-            box-shadow: 0 0 8px {OPP_RED}; animation: pulse 1.8s infinite;
+            width: 6px; height: 6px; border-radius: 50%;
+            background: {OPP_RED};
+            box-shadow: 0 0 6px {OPP_RED};
+            animation: pulse 1.8s infinite;
         }}
         @keyframes pulse {{
             0%, 100% {{ opacity: 1; }}
-            50% {{ opacity: 0.4; }}
+            50% {{ opacity: 0.3; }}
         }}
 
-        /* Score-bar — groot en centraal */
+        /* ── Topbar (logout-rij) ── */
+        .cs-topbar {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 4px 12px 4px;
+            gap: 8px;
+        }}
+        .cs-topbar-team {{
+            font-size: 13px;
+            color: {TEXT_SUB};
+            font-weight: 500;
+        }}
+        .cs-topbar-team strong {{
+            color: {TEXT_MAIN};
+            font-weight: 600;
+        }}
+
+        /* ── Score-bar ── */
         .scorebar {{
-            background: {CARD_BG}; border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 14px; padding: 18px 24px;
-            display: flex; align-items: center; justify-content: space-between;
+            background: {CARD_BG};
+            border: 1px solid {CARD_BORDER_SOFT};
+            border-radius: 14px;
+            padding: 18px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
             margin-bottom: 16px;
         }}
         .scorebar-team {{ flex: 1; text-align: center; }}
         .scorebar-team-name {{
-            font-size: 14px; font-weight: 600; color: {TEXT_SUB};
+            font-size: 13px; font-weight: 600; color: {TEXT_SUB};
             text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 4px;
         }}
         .scorebar-team-tag {{ font-size: 11px; color: {TEXT_MUTED}; }}
@@ -2926,25 +3125,39 @@ def inject_custom_css() -> None:
         .scorebar-score-team-own {{ color: {TEAM_BLUE}; }}
         .scorebar-score-team-opp {{ color: {OPP_RED}; }}
 
-        /* Team header boven tag-paneel */
+        /* ── Team header boven tag-paneel ── */
         .team-header {{
-            padding: 14px 18px; border-radius: 12px;
-            font-weight: 600; font-size: 16px; color: white;
+            padding: 12px 18px; border-radius: 10px;
+            font-weight: 600; font-size: 15px; color: white;
             margin-bottom: 12px; text-align: center;
             letter-spacing: -0.01em;
         }}
 
-        /* Inlogscherm */
+        /* ── Navigatie-tab balk ── */
+        .cs-nav-wrap {{
+            background: {CARD_BG};
+            border: 1px solid {CARD_BORDER_SOFT};
+            border-radius: 12px;
+            padding: 5px;
+            margin-bottom: 16px;
+            display: flex;
+            gap: 4px;
+        }}
+
+        /* ── Inlogscherm ── */
         .login-shell {{
-            max-width: 420px; margin: 60px auto 0 auto;
-            background: {CARD_BG}; border: 1px solid {CARD_BORDER_SOFT};
-            border-radius: 16px; padding: 40px 32px;
+            max-width: 440px; margin: 48px auto 0 auto;
+            background: {CARD_BG};
+            border: 1px solid {CARD_BORDER_SOFT};
+            border-radius: 16px;
+            padding: 44px 36px;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.4);
         }}
         .login-logo {{
             width: 56px; height: 56px; border-radius: 14px;
             background: linear-gradient(135deg, {ACCENT} 0%, {ACCENT_SOFT} 100%);
             display: flex; align-items: center; justify-content: center;
-            color: white; font-weight: 800; font-size: 26px;
+            color: white; font-weight: 800; font-size: 24px;
             margin: 0 auto 20px auto;
             box-shadow: 0 8px 24px rgba(99,102,241,0.4);
         }}
@@ -2954,17 +3167,57 @@ def inject_custom_css() -> None:
         }}
         .login-sub {{
             text-align: center; color: {TEXT_MUTED}; font-size: 13px;
-            margin-bottom: 24px;
+            margin-bottom: 28px; line-height: 1.5;
         }}
 
-        /* Verberg Streamlit-menu */
-        #MainMenu, footer {{ visibility: hidden; }}
+        /* ── Verberg Streamlit-menu & footer ── */
+        #MainMenu, footer, [data-testid="stToolbar"] {{ visibility: hidden; }}
+        [data-testid="stDecoration"] {{ display: none; }}
 
-        /* Radio / tabs */
+        /* ── Radio ── */
         [data-baseweb="radio"] {{ color: {TEXT_MAIN}; }}
 
-        /* Alerts */
-        [data-testid="stAlert"] {{ border-radius: 10px; }}
+        /* ── Alerts ── */
+        [data-testid="stAlert"] {{
+            border-radius: 10px;
+            border-width: 1px;
+            font-size: 13px;
+        }}
+
+        /* ── Divider ── */
+        hr {{ border-color: {CARD_BORDER_SOFT} !important; margin: 18px 0 !important; }}
+
+        /* ── Form containers ── */
+        [data-testid="stForm"] {{
+            background: {CARD_BG};
+            border: 1px solid {CARD_BORDER_SOFT} !important;
+            border-radius: 12px !important;
+            padding: 4px !important;
+        }}
+
+        /* ── Welcome sectie op homescherm ── */
+        .cs-welcome {{
+            padding: 4px 2px 16px 2px;
+        }}
+        .cs-welcome-title {{
+            font-size: 22px;
+            font-weight: 700;
+            color: {TEXT_MAIN};
+            letter-spacing: -0.02em;
+        }}
+        .cs-welcome-sub {{
+            color: {TEXT_SUB};
+            font-size: 14px;
+            margin-top: 4px;
+        }}
+        .cs-section-label {{
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: {TEXT_MUTED};
+            margin: 20px 0 10px 2px;
+        }}
 
         </style>
     """).strip()
@@ -2984,10 +3237,35 @@ def render_info_card(title: str, value: str, subtitle: str, accent: str) -> None
 
 
 def render_hero_header() -> None:
-    sync_text = "Cloud" if cloud_enabled() else "Lokaal"
+    active_tool = st.session_state.get("active_tool")
+    team_name = st.session_state.get("active_team_name") or "—"
+    _tool_labels = {
+        "MATCH_ANALYSIS": "Wedstrijd analyse",
+        "VIDEO_ANALYSIS": "Video analyse",
+        "SUBSTITUTION": "Wisselschema",
+        "SEASON": "Seizoensoverzicht",
+        "PLAYER_PROFILE": "Spelersprofiel",
+        "MATCH_MGMT": "Wedstrijden & uitslagen",
+    }
+    if active_tool:
+        subtitle = _tool_labels.get(active_tool, active_tool)
+    else:
+        subtitle = "Kies een tool om te beginnen"
+
     is_live = st.session_state.timer_running
-    live_class = "status-chip live" if is_live else "status-chip"
-    live_indicator = '<span class="dot"></span>LIVE' if is_live else "Stand-by"
+    cloud_ok = cloud_enabled()
+    chips = []
+    if active_tool == "MATCH_ANALYSIS":
+        # Toon kwart en live-indicator alleen in de wedstrijdtool
+        chips.append(f'<span class="status-chip">{st.session_state.quarter}</span>')
+        if is_live:
+            chips.append('<span class="status-chip live"><span class="dot"></span>LIVE</span>')
+    if cloud_ok:
+        chips.append('<span class="status-chip ok">☁ Cloud</span>')
+    else:
+        chips.append(f'<span class="status-chip">Lokaal</span>')
+    chips_html = "".join(chips)
+
     html = (
         f'<div class="hero">'
         f'<div class="hero-top">'
@@ -2995,14 +3273,11 @@ def render_hero_header() -> None:
         f'<div class="hero-logo">CS</div>'
         f'<div>'
         f'<div class="hero-title">Coach Studio</div>'
-        f'<div class="hero-sub">Wedstrijdanalyse • {st.session_state.match_id}</div>'
+        f'<div class="hero-sub">{team_name} · {subtitle}</div>'
         f'</div>'
         f'</div>'
-        f'<div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">'
-        f'<div class="status-chip">{current_time_str()}</div>'
-        f'<div class="status-chip">{st.session_state.quarter}</div>'
-        f'<div class="status-chip">{sync_text}</div>'
-        f'<div class="{live_class}">{live_indicator}</div>'
+        f'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+        f'{chips_html}'
         f'</div>'
         f'</div>'
         f'</div>'
@@ -3061,9 +3336,18 @@ def render_navigation() -> None:
         st.session_state.active_screen = screens[0][0]
 
     if len(screens) <= 1:
-        # Eén-tab tools hebben geen tab-navigatie nodig.
+        # Eén-tab tools: toon een subtiele tool-label balk
+        if screens:
+            _, lbl, icon = screens[0]
+            st.markdown(
+                f'<div style="padding:4px 0 12px 2px;color:{TEXT_MUTED};'
+                f'font-size:13px;font-weight:500;">{icon} {lbl}</div>',
+                unsafe_allow_html=True,
+            )
         return
 
+    # Navigatie als pill-tabs in een achtergrond-container
+    st.markdown('<div class="cs-nav-wrap">', unsafe_allow_html=True)
     cols = st.columns(len(screens))
     for i, (screen_id, label, icon) in enumerate(screens):
         is_active = st.session_state.active_screen == screen_id
@@ -3075,6 +3359,7 @@ def render_navigation() -> None:
         ):
             st.session_state.active_screen = screen_id
             st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 def render_setup_bar() -> None:
@@ -6954,19 +7239,15 @@ def render_match_selector_on_home() -> None:
 
 
 def render_tool_selector() -> None:
-    """Landingspagina met 3 grote tool-kaarten."""
+    """Landingspagina met tool-kaarten in een 2×3 grid."""
     team_name = st.session_state.get("active_team_name") or "je team"
+
+    # Welkom-header
     st.markdown(
-        f"""
-        <div style='text-align:center; padding: 24px 0 8px 0;'>
-            <div style='font-size: 28px; font-weight: 700; color: {TEXT_MAIN};'>
-                Welkom — {team_name}
-            </div>
-            <div style='color: {TEXT_SUB}; margin-top:6px;'>
-                Kies welke tool je wilt gebruiken
-            </div>
-        </div>
-        """,
+        f'<div class="cs-welcome">'
+        f'<div class="cs-welcome-title">Welkom, {team_name} 👋</div>'
+        f'<div class="cs-welcome-sub">Kies een tool om te beginnen</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -6977,95 +7258,85 @@ def render_tool_selector() -> None:
         {
             "id": "MATCH_ANALYSIS",
             "title": "Wedstrijd analyse",
-            "icon": "●",
-            "desc": "Live taggen tijdens de wedstrijd, daarna analyseren, veldweergave en rapportage.",
-            "tabs": "Live • Analyse • Veld • Rapport",
+            "icon": "⚡",
+            "desc": "Live taggen tijdens de wedstrijd. Daarna analyseren per kwart, veldweergave en coachrapport.",
+            "tabs": "Live · Analyse · Veld · Rapport",
         },
         {
             "id": "VIDEO_ANALYSIS",
             "title": "Video analyse",
-            "icon": "▶",
-            "desc": "Knip clips uit video, label ze tactisch en bouw een coachingbundel.",
-            "tabs": "Clips • Tags • Player",
+            "icon": "🎬",
+            "desc": "Knip clips uit video, label ze tactisch en bouw een coachingbundel voor je spelers.",
+            "tabs": "Clips · Tags · Highlight reel",
         },
         {
             "id": "SUBSTITUTION",
             "title": "Wisselschema",
-            "icon": "⇄",
-            "desc": "Maak een eerlijk wisselschema per minuut, per linie, met vaste keeper en prioriteiten.",
-            "tabs": "Team • Wedstrijd • Schema • Export",
+            "icon": "🔄",
+            "desc": "Automatisch eerlijk wisselschema per minuut en linie. Formatiebeheer en PDF-export.",
+            "tabs": "Team · Wedstrijd · Schema · Export",
         },
         {
             "id": "SEASON",
             "title": "Seizoensoverzicht",
-            "icon": "📊",
-            "desc": "Totalen over alle wedstrijden: W/G/V, doelsaldo, topscorers, speelminuten en PDF-rapport.",
-            "tabs": "KPI • Topscorers • Trend • Speelminuten",
+            "icon": "📈",
+            "desc": "W/G/V statistieken, doelsaldo, topscorers, speelminuten-verdeling en seizoensrapport.",
+            "tabs": "KPI · Topscorers · Trend · Minuten",
         },
         {
             "id": "PLAYER_PROFILE",
             "title": "Spelersprofiel",
             "icon": "👤",
-            "desc": "Notities per speler bijhouden: technisch, tactisch, fysiek. Met beoordeling en groeicurve.",
-            "tabs": "Profiel • Notities • Trend",
+            "desc": "Notities per speler: technisch, tactisch, fysiek en mentaal. Beoordeling 1–5 met groeicurve.",
+            "tabs": "Profiel · Notities · Trend",
         },
         {
             "id": "MATCH_MGMT",
             "title": "Wedstrijden",
-            "icon": "🏑",
-            "desc": "Uitslagen handmatig bevestigen, tegenstander en locatie invullen, seizoensoverzicht.",
-            "tabs": "Uitslag • Overzicht",
+            "icon": "🏆",
+            "desc": "Uitslagen bevestigen, tegenstander en locatie invullen. Seizoensoverzicht W/G/V en doelsaldo.",
+            "tabs": "Uitslag · Seizoensoverzicht",
         },
     ]
 
-    cols = st.columns(len(tools), gap="large")
-    for col, tool in zip(cols, tools):
-        with col:
-            st.markdown(
-                f"""
-                <div style='
-                    background: {CARD_BG_ELEVATED};
-                    border: 1px solid {CARD_BORDER_SOFT};
-                    border-radius: 14px;
-                    padding: 22px;
-                    min-height: 170px;
-                '>
-                    <div style='font-size: 28px; color: {ACCENT};'>{tool["icon"]}</div>
-                    <div style='font-size: 20px; font-weight: 700; margin-top: 6px; color: {TEXT_MAIN};'>
-                        {tool["title"]}
-                    </div>
-                    <div style='color: {TEXT_SUB}; margin-top: 8px; font-size: 14px; line-height: 1.4;'>
-                        {tool["desc"]}
-                    </div>
-                    <div style='color: {TEXT_MUTED}; margin-top: 10px; font-size: 12px;'>
-                        {tool["tabs"]}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            if st.button(
-                f"Open {tool['title']}",
-                key=f"open_tool_{tool['id']}",
-                use_container_width=True,
-                type="primary",
-            ):
-                st.session_state.active_tool = tool["id"]
-                # Reset active_screen zodat render_navigation() de eerste tab kiest
-                st.session_state.active_screen = None
-                st.rerun()
+    # 2×3 grid — 2 rijen van 3 tools
+    st.markdown('<div class="cs-section-label">Tools</div>', unsafe_allow_html=True)
+    rows = [tools[:3], tools[3:]]
+    for row_tools in rows:
+        cols = st.columns(3, gap="medium")
+        for col, tool in zip(cols, row_tools):
+            with col:
+                st.markdown(
+                    f'<div class="tool-card">'
+                    f'<div class="tool-card-icon">{tool["icon"]}</div>'
+                    f'<div class="tool-card-title">{tool["title"]}</div>'
+                    f'<div class="tool-card-desc">{tool["desc"]}</div>'
+                    f'<div class="tool-card-tabs">{tool["tabs"]}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button(
+                    f"Open →",
+                    key=f"open_tool_{tool['id']}",
+                    use_container_width=True,
+                    type="primary",
+                ):
+                    st.session_state.active_tool = tool["id"]
+                    st.session_state.active_screen = None
+                    st.rerun()
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-    st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
     # Team-beheer onderaan
-    with st.expander("⚙️ Team-beheer"):
+    with st.expander("⚙️  Team-beheer"):
         teams = list_teams()
         st.markdown(f"Er zijn **{len(teams)}** team(s) geregistreerd.")
         for t in teams:
             is_active = t.get("id") == st.session_state.get("active_team_id")
             c1, c2 = st.columns([4, 1])
             with c1:
-                label = f"• {t['name']}" + ("  (dit team)" if is_active else "")
+                label = f"• {t['name']}" + ("  ✓ (dit team)" if is_active else "")
                 st.markdown(label)
             with c2:
                 if not is_active and st.button("Verwijder", key=f"del_team_{t['id']}"):
@@ -7073,9 +7344,9 @@ def render_tool_selector() -> None:
                     st.rerun()
         st.divider()
         st.markdown("**Nieuw team toevoegen**")
-        nn = st.text_input("Naam", key="tm_new_name", placeholder="Teamnaam")
+        nn = st.text_input("Naam", key="tm_new_name", placeholder="Bijv. MO16-1 Hockeyclub")
         np1 = st.text_input("Wachtwoord", type="password", key="tm_new_pw")
-        if st.button("Aanmaken", key="tm_create_btn", type="primary"):
+        if st.button("Team aanmaken", key="tm_create_btn", type="primary"):
             ok, msg = create_team(nn, np1)
             if ok:
                 st.success(msg)
@@ -7116,22 +7387,20 @@ df = build_df()
 if not df.empty:
     refresh_derived_state()
 
-if cloud_enabled():
-    last_sync = st.session_state.last_sync_time or "nog niet"
-    st.success(f"Cloud sync actief • laatste sync: {last_sync} • events: {st.session_state.last_sync_count}")
-else:
-    st.warning("Cloud sync uit. Voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
+# Cloud-status: alleen tonen bij echte problemen, niet als groene balk op elke pagina
+if not cloud_enabled():
+    st.caption("⚠️ Cloud sync inactief — voeg SUPABASE_URL en SUPABASE_KEY toe aan Streamlit secrets.")
 
 # Waarschuwing als er recent een cloud-fout is geweest (zodat je niet stil data verliest)
 if st.session_state.cloud_errors and not st.session_state.last_cloud_ok:
-    with st.container():
-        st.error(
-            "⚠️ Er is een cloud-probleem opgetreden. Je tags zijn wél lokaal bewaard. "
-            "Druk op 'Sync' om het opnieuw te proberen."
-        )
-        with st.expander("Details laatste cloud-fouten"):
-            for e in reversed(st.session_state.cloud_errors[-5:]):
-                st.code(e, language="text")
+    st.error(
+        "⚠️ Cloud-probleem opgetreden — je tags zijn wél lokaal bewaard. "
+        "Druk op Sync om het opnieuw te proberen.",
+        icon="⚠️",
+    )
+    with st.expander("Details cloud-fouten"):
+        for e in reversed(st.session_state.cloud_errors[-5:]):
+            st.code(e, language="text")
 
 
 # ------ Tool-routing ------
