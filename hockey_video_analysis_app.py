@@ -7385,7 +7385,10 @@ def render_selection_screen() -> None:
     with col_field:
         st.subheader("Veldopstelling")
         svg = _render_field_svg_selection(pos_player_map)
-        st.markdown(svg, unsafe_allow_html=True)
+        components.html(
+            f'<div style="background:#080c18;padding:8px;border-radius:12px;">{svg}</div>',
+            height=450,
+        )
         if reserves:
             st.markdown(
                 f'<div style="text-align:center;margin-top:12px;color:#94a3b8;font-size:12px;">'
