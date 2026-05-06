@@ -3320,6 +3320,9 @@ def render_hero_header() -> None:
         "INJURIES": "Blessure tracker",
         "SCOUTING": "Tegenstander scouting",
         "GOALS": "Seizoensdoelen",
+        "TEKENBORD": "Tactisch tekenbord",
+        "KALENDER": "Wedstrijdkalender",
+        "AI_TIPS": "AI Coaching tips",
     }
     if active_tool:
         subtitle = _tool_labels.get(active_tool, active_tool)
@@ -3420,6 +3423,12 @@ def render_navigation() -> None:
         screens = [("SCOUTING", "Scouting", "🔍")]
     elif active_tool == "GOALS":
         screens = [("GOALS", "Seizoensdoelen", "🎯")]
+    elif active_tool == "TEKENBORD":
+        screens = [("TEKENBORD", "Tekenbord", "🖊️")]
+    elif active_tool == "KALENDER":
+        screens = [("KALENDER", "Kalender", "📆")]
+    elif active_tool == "AI_TIPS":
+        screens = [("AI_TIPS", "AI Tips", "🤖")]
     else:
         screens = []
 
@@ -8529,6 +8538,630 @@ def render_goals_screen() -> None:
 
 
 # ==================================================
+# TACTISCH TEKENBORD
+# ==================================================
+def render_tekenbord_screen() -> None:
+    st.markdown("### 🖊️ Tactisch tekenbord")
+    st.caption("Teken formaties, bewegingen en tactische patronen. Sleep spelers, teken pijlen en lijnen.")
+
+    tekenbord_html = """<!DOCTYPE html>
+<html><head><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#080c18;font-family:Inter,-apple-system,sans-serif;user-select:none}
+.toolbar{display:flex;gap:6px;padding:10px 8px;flex-wrap:wrap;align-items:center;
+  background:#0f1624;border-bottom:1px solid #1a2540;border-radius:12px 12px 0 0}
+.btn{background:#141d2f;border:1px solid #1a2540;color:#cbd5e1;padding:6px 12px;
+  border-radius:8px;cursor:pointer;font-size:12px;font-weight:600;transition:all 0.15s}
+.btn:hover{border-color:#3b82f6;color:#e2e8f0}
+.btn.active{background:#3b82f6;border-color:#3b82f6;color:white}
+.btn.red.active{background:#ef4444;border-color:#ef4444}
+.btn.green.active{background:#10b981;border-color:#10b981}
+.sep{width:1px;height:24px;background:#1a2540}
+canvas{display:block;border-radius:0 0 12px 12px;cursor:crosshair;touch-action:none}
+.wrap{border-radius:12px;overflow:hidden;border:1px solid #1a2540;max-width:640px;margin:0 auto}
+</style></head>
+<body>
+<div class="wrap">
+<div class="toolbar">
+  <button class="btn active" id="t-blauw" onclick="setTool('blauw')">🔵 Eigen speler</button>
+  <button class="btn" id="t-rood" onclick="setTool('rood')">🔴 Tegenstander</button>
+  <button class="btn" id="t-bal" onclick="setTool('bal')">⚽ Bal</button>
+  <div class="sep"></div>
+  <button class="btn" id="t-pijl" onclick="setTool('pijl')">➡️ Pijl</button>
+  <button class="btn" id="t-lijn" onclick="setTool('lijn')">✏️ Lijn</button>
+  <button class="btn" id="t-tekst" onclick="setTool('tekst')">🔤 Tekst</button>
+  <div class="sep"></div>
+  <button class="btn" id="t-wis" onclick="setTool('wis')">🗑️ Wissen</button>
+  <button class="btn" onclick="undo()">↩ Undo</button>
+  <button class="btn" onclick="clearAll()">✕ Alles leeg</button>
+</div>
+<canvas id="c" width="640" height="460"></canvas>
+</div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let tool='blauw',drag=null,drawing=false,sx=0,sy=0;
+let spelers=[],lijnen=[],pijlen=[],teksten=[],bal=null;
+let curLijn=[],history=[];
+const W=640,H=460;
+
+function pos(e){
+  const r=cv.getBoundingClientRect();
+  const sc=W/r.width;
+  const src=e.touches?e.touches[0]:e;
+  return{x:(src.clientX-r.left)*sc,y:(src.clientY-r.top)*sc};
+}
+
+function setTool(t){
+  tool=t;
+  document.querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));
+  const el=document.getElementById('t-'+t);
+  if(el)el.classList.add('active');
+  cv.style.cursor=t==='wis'?'not-allowed':t==='lijn'||t==='pijl'?'crosshair':'default';
+}
+
+function drawField(){
+  // Gras
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0a5c2f');g.addColorStop(1,'#0d6b36');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  // Strepen
+  for(let i=0;i<8;i++){
+    ctx.fillStyle=i%2?'rgba(0,0,0,0.06)':'rgba(255,255,255,0.03)';
+    ctx.fillRect(0,i*(H/8),W,H/8);
+  }
+  ctx.strokeStyle='rgba(255,255,255,0.55)';ctx.lineWidth=1.5;
+  // Buitenrand
+  ctx.strokeRect(24,12,W-48,H-24);
+  // Middenlijn
+  ctx.beginPath();ctx.moveTo(24,H/2);ctx.lineTo(W-24,H/2);ctx.stroke();
+  // Middencirkel
+  ctx.beginPath();ctx.arc(W/2,H/2,52,0,Math.PI*2);ctx.stroke();
+  // Middenstip
+  ctx.fillStyle='white';ctx.beginPath();ctx.arc(W/2,H/2,3,0,Math.PI*2);ctx.fill();
+  // Strafschopgebieden
+  ctx.strokeRect(W/2-100,12,200,68);ctx.strokeRect(W/2-40,12,80,28);
+  ctx.strokeRect(W/2-100,H-80,200,68);ctx.strokeRect(W/2-40,H-40,80,28);
+  // Strafschoppunten
+  ctx.fillStyle='rgba(255,255,255,0.7)';
+  ctx.beginPath();ctx.arc(W/2,56,3,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(W/2,H-56,3,0,Math.PI*2);ctx.fill();
+}
+
+function drawArrow(x1,y1,x2,y2,col){
+  const ang=Math.atan2(y2-y1,x2-x1);
+  const len=Math.hypot(x2-x1,y2-y1);
+  if(len<6)return;
+  ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=2.5;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  const h=14;
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-h*Math.cos(ang-Math.PI/6),y2-h*Math.sin(ang-Math.PI/6));
+  ctx.lineTo(x2-h*Math.cos(ang+Math.PI/6),y2-h*Math.sin(ang+Math.PI/6));
+  ctx.closePath();ctx.fill();
+}
+
+function drawSpeler(s){
+  const col=s.team==='blauw'?'#3b82f6':s.team==='rood'?'#ef4444':'#f59e0b';
+  ctx.beginPath();ctx.arc(s.x,s.y,16,0,Math.PI*2);
+  ctx.fillStyle=col;ctx.fill();
+  ctx.strokeStyle='white';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='white';ctx.font='bold 10px Inter,sans-serif';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(s.num||s.label||'',s.x,s.y);
+}
+
+function redraw(){
+  ctx.clearRect(0,0,W,H);drawField();
+  lijnen.forEach(l=>{
+    if(l.pts.length<2)return;
+    ctx.beginPath();ctx.strokeStyle=l.col;ctx.lineWidth=2.5;
+    ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.moveTo(l.pts[0].x,l.pts[0].y);
+    l.pts.forEach(p=>ctx.lineTo(p.x,p.y));ctx.stroke();
+  });
+  pijlen.forEach(a=>drawArrow(a.x1,a.y1,a.x2,a.y2,a.col));
+  teksten.forEach(t=>{
+    ctx.fillStyle='#fbbf24';ctx.font='bold 13px Inter,sans-serif';
+    ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText(t.txt,t.x,t.y);
+  });
+  spelers.forEach(drawSpeler);
+  if(bal){
+    ctx.fillStyle='white';ctx.strokeStyle='#1a1a1a';ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(bal.x,bal.y,9,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#333';ctx.font='bold 11px sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('⚽',bal.x,bal.y);
+  }
+}
+
+function hitSpeler(x,y){
+  for(let i=spelers.length-1;i>=0;i--)
+    if(Math.hypot(spelers[i].x-x,spelers[i].y-y)<18)return i;
+  return -1;
+}
+
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();cv.setPointerCapture(e.pointerId);
+  const p=pos(e);
+  if(tool==='blauw'||tool==='rood'){
+    const team=tool;
+    const count=spelers.filter(s=>s.team===team).length+1;
+    const s={x:p.x,y:p.y,team,num:count};
+    spelers.push(s);history.push({t:'speler',i:spelers.length-1});
+    redraw();
+  } else if(tool==='bal'){
+    bal={x:p.x,y:p.y};redraw();
+  } else if(tool==='lijn'){
+    drawing=true;curLijn=[{x:p.x,y:p.y}];
+  } else if(tool==='pijl'){
+    drawing=true;sx=p.x;sy=p.y;
+  } else if(tool==='tekst'){
+    const txt=prompt('Tekst:');
+    if(txt){teksten.push({x:p.x,y:p.y,txt});history.push({t:'tekst',i:teksten.length-1});redraw();}
+  } else if(tool==='wis'){
+    const hi=hitSpeler(p.x,p.y);
+    if(hi>=0){spelers.splice(hi,1);redraw();}
+    else if(bal&&Math.hypot(bal.x-p.x,bal.y-p.y)<14){bal=null;redraw();}
+  }
+  // Drag check for move
+  if(tool!=='wis'&&tool!=='lijn'&&tool!=='pijl'&&tool!=='tekst'){
+    const hi=hitSpeler(p.x,p.y);
+    if(hi>=0)drag=hi;
+    else if(bal&&Math.hypot(bal.x-p.x,bal.y-p.y)<14)drag='bal';
+  }
+});
+
+cv.addEventListener('pointermove',e=>{
+  e.preventDefault();
+  const p=pos(e);
+  if(drag!==null&&drag!=='bal'&&drag>=0){spelers[drag].x=p.x;spelers[drag].y=p.y;redraw();}
+  else if(drag==='bal'){bal.x=p.x;bal.y=p.y;redraw();}
+  else if(drawing&&tool==='lijn'){
+    curLijn.push({x:p.x,y:p.y});
+    redraw();
+    ctx.beginPath();ctx.strokeStyle='rgba(255,220,0,0.85)';ctx.lineWidth=2.5;
+    ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.moveTo(curLijn[0].x,curLijn[0].y);
+    curLijn.forEach(q=>ctx.lineTo(q.x,q.y));ctx.stroke();
+  } else if(drawing&&tool==='pijl'){
+    redraw();drawArrow(sx,sy,p.x,p.y,'rgba(255,220,0,0.85)');
+  }
+});
+
+cv.addEventListener('pointerup',e=>{
+  e.preventDefault();
+  const p=pos(e);
+  if(drag!==null){drag=null;}
+  else if(drawing&&tool==='lijn'){
+    lijnen.push({pts:[...curLijn],col:'rgba(255,220,0,0.85)'});
+    history.push({t:'lijn',i:lijnen.length-1});
+  } else if(drawing&&tool==='pijl'){
+    pijlen.push({x1:sx,y1:sy,x2:p.x,y2:p.y,col:'rgba(255,220,0,0.85)'});
+    history.push({t:'pijl',i:pijlen.length-1});
+  }
+  drawing=false;curLijn=[];redraw();
+});
+
+function undo(){
+  const h=history.pop();if(!h)return;
+  if(h.t==='speler')spelers.splice(h.i,1);
+  else if(h.t==='lijn')lijnen.splice(h.i,1);
+  else if(h.t==='pijl')pijlen.splice(h.i,1);
+  else if(h.t==='tekst')teksten.splice(h.i,1);
+  redraw();
+}
+
+function clearAll(){spelers=[];lijnen=[];pijlen=[];teksten=[];bal=null;history=[];redraw();}
+
+redraw();
+</script></body></html>"""
+
+    components.html(tekenbord_html, height=530, scrolling=False)
+    st.caption("💡 Tip: sleep spelers naar de gewenste positie · gele pijlen/lijnen voor bewegingen · undo om terug te gaan")
+
+
+# ==================================================
+# WEDSTRIJDKALENDER
+# ==================================================
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_kalender(team_id: str) -> list:
+    client = get_supabase_client()
+    if not team_id or client is None:
+        return []
+    try:
+        r = client.table("calendar_events").select("*").eq("team_id", team_id)\
+            .order("datum").execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def cloud_list_kalender() -> list:
+    tid = _active_team_id()
+    result = _fetch_kalender(tid or "")
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
+
+
+def cloud_save_kalender(data: dict) -> None:
+    tid = _active_team_id()
+    client = get_supabase_client()
+    if not tid or client is None:
+        return
+    try:
+        data["team_id"] = tid
+        if not data.get("id"):
+            data["id"] = str(uuid.uuid4())
+        client.table("calendar_events").upsert(data, on_conflict="id").execute()
+        _fetch_kalender.clear()
+        mark_cloud_ok()
+    except Exception as err:
+        log_cloud_error("kalender opslaan", err)
+
+
+def cloud_delete_kalender(event_id: str) -> None:
+    tid = _active_team_id()
+    client = get_supabase_client()
+    if not tid or client is None:
+        return
+    try:
+        client.table("calendar_events").delete().eq("id", event_id).eq("team_id", tid).execute()
+        _fetch_kalender.clear()
+        mark_cloud_ok()
+    except Exception as err:
+        log_cloud_error("kalender verwijderen", err)
+
+
+def generate_ics(events: list, team_name: str) -> str:
+    """Genereer een .ics kalenderbestand van events."""
+    import datetime as _dt
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Coach Studio//NL",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:Coach Studio - {team_name}",
+        "X-WR-TIMEZONE:Europe/Amsterdam",
+    ]
+    for ev in events:
+        try:
+            datum_str = ev.get("datum", "")
+            tijd_str = ev.get("tijd", "09:00")
+            d = _dt.date.fromisoformat(datum_str)
+            t = _dt.time.fromisoformat(tijd_str[:5])
+            dt_start = _dt.datetime.combine(d, t)
+            dt_end = dt_start + _dt.timedelta(minutes=int(ev.get("duur_min", 90)))
+            fmt = "%Y%m%dT%H%M%S"
+            uid = ev.get("id", str(uuid.uuid4()))
+            titel = ev.get("titel", "Event")
+            locatie = ev.get("locatie", "")
+            notities = ev.get("notities", "")
+            lines += [
+                "BEGIN:VEVENT",
+                f"UID:{uid}@coachhub",
+                f"DTSTART:{dt_start.strftime(fmt)}",
+                f"DTEND:{dt_end.strftime(fmt)}",
+                f"SUMMARY:{titel}",
+                f"LOCATION:{locatie}",
+                f"DESCRIPTION:{notities}",
+                "END:VEVENT",
+            ]
+        except Exception:
+            continue
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(lines)
+
+
+def render_kalender_screen() -> None:
+    import datetime as _dt
+    st.markdown("### 📆 Wedstrijdkalender")
+
+    events = cloud_list_kalender()
+    trainingen = cloud_list_trainings(limit=50)
+    today = _dt.date.today()
+    team_name = st.session_state.get("active_team_name", "Team")
+
+    tab_overzicht, tab_nieuw, tab_export = st.tabs(["📅 Agenda", "➕ Toevoegen", "📥 Exporteren"])
+
+    with tab_overzicht:
+        # Combineer kalender-events met trainingen
+        alle_items = []
+        for ev in events:
+            alle_items.append({**ev, "_type": "event"})
+        for tr in trainingen:
+            alle_items.append({
+                "id": tr["id"], "datum": tr.get("datum", ""),
+                "tijd": tr.get("starttijd", ""), "duur_min": 90,
+                "titel": f"Training — {tr.get('thema', '')}",
+                "locatie": tr.get("locatie", ""),
+                "notities": tr.get("notities", ""),
+                "type": "training", "_type": "training",
+            })
+
+        alle_items.sort(key=lambda x: x.get("datum", ""))
+        komend = [i for i in alle_items if i.get("datum", "") >= today.isoformat()]
+        verleden = [i for i in alle_items if i.get("datum", "") < today.isoformat()]
+
+        type_icons = {"wedstrijd": "🏑", "training": "🏃", "toernooi": "🏆", "overig": "📌"}
+
+        def _render_item(item):
+            datum_str = item.get("datum", "")
+            try:
+                d = _dt.date.fromisoformat(datum_str)
+                dag_naam = ["Ma","Di","Wo","Do","Vr","Za","Zo"][d.weekday()]
+                dag_num = d.day
+                maand = ["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"][d.month-1]
+            except Exception:
+                dag_naam, dag_num, maand = "", datum_str, ""
+
+            ttype = item.get("type", "overig")
+            icon = type_icons.get(ttype, "📌")
+            color = {"wedstrijd": "#3b82f6", "training": "#10b981",
+                     "toernooi": "#f59e0b", "overig": "#64748b"}.get(ttype, "#64748b")
+            tijd = item.get("tijd", "")[:5]
+
+            st.markdown(
+                f'<div style="background:#0f1624;border:1px solid #1a2540;'
+                f'border-left:3px solid {color};border-radius:12px;'
+                f'padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px;">'
+                f'<div style="text-align:center;min-width:44px;">'
+                f'<div style="color:{color};font-weight:800;font-size:18px;">{dag_num}</div>'
+                f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;">{maand}</div>'
+                f'</div>'
+                f'<div style="flex:1;">'
+                f'<div style="color:#f1f5f9;font-weight:600;font-size:14px;">{icon} {item.get("titel","")}</div>'
+                f'<div style="color:#64748b;font-size:12px;margin-top:2px;">'
+                f'{dag_naam} · {tijd} · {item.get("locatie","")}</div>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            if item.get("_type") == "event":
+                if st.button("🗑️", key=f"del_kal_{item['id']}", help="Verwijder"):
+                    cloud_delete_kalender(item["id"])
+                    st.rerun()
+
+        if not komend:
+            st.info("Geen komende events. Voeg wedstrijden toe via '➕ Toevoegen'.")
+        else:
+            st.markdown('<div class="cs-section-label">Komend</div>', unsafe_allow_html=True)
+            for item in komend[:15]:
+                _render_item(item)
+
+        if verleden:
+            with st.expander(f"Verleden ({len(verleden)})"):
+                for item in verleden[-10:]:
+                    _render_item(item)
+
+    with tab_nieuw:
+        with st.form("kalender_form"):
+            titel = st.text_input("Titel", placeholder="Bijv. Competitiewedstrijd vs HC Rotterdam", key="kf_titel")
+            c1, c2 = st.columns(2)
+            ttype = c1.selectbox("Type", ["wedstrijd", "training", "toernooi", "overig"], key="kf_type")
+            datum = c2.date_input("Datum", value=today, key="kf_datum")
+            c3, c4, c5 = st.columns(3)
+            tijd = c3.time_input("Tijd", value=__import__("datetime").time(14, 0), key="kf_tijd")
+            duur = c4.number_input("Duur (min)", min_value=30, max_value=300, value=90, step=15, key="kf_duur")
+            locatie = c5.text_input("Locatie", placeholder="Sportpark De Hoef", key="kf_loc")
+            notities = st.text_area("Notities", height=70, key="kf_notes",
+                                     placeholder="Bijv. uitwedstrijd, warm worden voor 13:30")
+            toevoegen = st.form_submit_button("📅 Toevoegen aan kalender", type="primary")
+
+        if toevoegen:
+            if not titel.strip():
+                st.error("Vul een titel in.")
+            else:
+                cloud_save_kalender({
+                    "titel": titel.strip(), "type": ttype,
+                    "datum": datum.isoformat(), "tijd": tijd.strftime("%H:%M"),
+                    "duur_min": int(duur), "locatie": locatie.strip(),
+                    "notities": notities.strip(),
+                })
+                st.success("Event toegevoegd!")
+                st.rerun()
+
+    with tab_export:
+        st.subheader("Exporteren naar telefoon-kalender")
+        st.markdown(
+            "Download het `.ics` bestand en open het op je telefoon. "
+            "Het wordt automatisch toegevoegd aan je Apple Agenda of Google Agenda."
+        )
+        alle_export = []
+        for ev in events:
+            alle_export.append(ev)
+        for tr in trainingen:
+            alle_export.append({
+                "id": tr["id"], "datum": tr.get("datum",""), "tijd": tr.get("starttijd",""),
+                "duur_min": 90, "titel": f"Training — {tr.get('thema','')}", "locatie": tr.get("locatie",""),
+                "notities": tr.get("notities",""),
+            })
+        if not alle_export:
+            st.info("Geen events om te exporteren.")
+        else:
+            ics_content = generate_ics(alle_export, team_name)
+            st.download_button(
+                "📥 Download kalender (.ics)",
+                data=ics_content.encode("utf-8"),
+                file_name=f"kalender_{team_name.replace(' ','_')}.ics",
+                mime="text/calendar",
+                type="primary",
+                use_container_width=True,
+            )
+            st.caption(f"{len(alle_export)} events · wedstrijden + trainingen gecombineerd")
+
+
+# ==================================================
+# AI COACHING TIPS
+# ==================================================
+def _get_anthropic_client():
+    try:
+        import anthropic as _ant
+        key, _ = _find_secret_value(["ANTHROPIC_API_KEY", "anthropic_api_key", "CLAUDE_API_KEY"])
+        if not key:
+            return None
+        return _ant.Anthropic(api_key=key)
+    except Exception:
+        return None
+
+
+def generate_ai_tips(df, team_name: str, opponent_name: str) -> str | None:
+    """Vraag Claude om coaching-inzichten op basis van de match events."""
+    client = _get_anthropic_client()
+    if client is None:
+        return None
+    if df is None or df.empty:
+        return None
+
+    # Bouw een samenvatting van de wedstrijd
+    totaal = len(df)
+    kwart_counts = df.groupby("quarter").size().to_dict() if "quarter" in df.columns else {}
+    event_counts = df.groupby("event").size().sort_values(ascending=False).to_dict() if "event" in df.columns else {}
+    team_events = df[df["team"] == "own"]["event"].value_counts().to_dict() if "team" in df.columns else {}
+    opp_events = df[df["team"] == "opponent"]["event"].value_counts().to_dict() if "team" in df.columns else {}
+
+    samenvatting = (
+        f"Team: {team_name} vs {opponent_name}\n"
+        f"Totaal events: {totaal}\n"
+        f"Events per kwart: {kwart_counts}\n"
+        f"Eigen events: {team_events}\n"
+        f"Tegenstander events: {opp_events}\n"
+    )
+
+    prompt = (
+        f"Je bent een ervaren hockey coach assistent. Analyseer deze wedstrijddata en geef 4-5 concrete, "
+        f"bruikbare coaching-inzichten in het Nederlands. Wees specifiek en praktisch. "
+        f"Gebruik bullet points. Focus op: aanvalstactieken, verdedigingspatronen, kwartprestaties "
+        f"en verbeterpunten.\n\nWedstrijddata:\n{samenvatting}"
+    )
+
+    try:
+        import anthropic as _ant
+        msg = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text
+    except Exception as err:
+        return None
+
+
+def render_ai_tips_screen() -> None:
+    st.markdown("### 🤖 AI Coaching tips")
+    st.caption("Claude analyseert jouw wedstrijddata en geeft tactische inzichten.")
+
+    ai_client = _get_anthropic_client()
+    if ai_client is None:
+        st.warning(
+            "Voeg een `ANTHROPIC_API_KEY` toe aan je Streamlit secrets om AI-tips te activeren.\n\n"
+            "Ga naar: **Streamlit Cloud → jouw app → Settings → Secrets** en voeg toe:\n"
+            "```\nANTHROPIC_API_KEY = \"sk-ant-...\"\n```"
+        )
+        st.markdown("**Hoe krijg je een API key?**")
+        st.markdown("1. Ga naar [console.anthropic.com](https://console.anthropic.com)")
+        st.markdown("2. Maak een account aan")
+        st.markdown("3. Ga naar API Keys → Create Key")
+        st.markdown("4. Plak de key in je Streamlit secrets")
+        return
+
+    match_ids = list_match_ids_from_cloud(limit=20)
+    if not match_ids:
+        st.info("Nog geen wedstrijden gevonden. Start eerst een wedstrijd via Wedstrijd analyse.")
+        return
+
+    tid = _active_team_id()
+    client_sb = get_supabase_client()
+    meta_map = {}
+    if tid and client_sb:
+        try:
+            resp = client_sb.table("match_meta").select("match_id,opponent_name").eq("team_id", tid).execute()
+            for r in (resp.data or []):
+                if r.get("match_id"):
+                    meta_map[r["match_id"]] = r.get("opponent_name", "?")
+        except Exception:
+            pass
+
+    def _label(mid):
+        return f"{unscope_match_id(mid)} — vs {meta_map.get(mid, '?')}"
+
+    opts = {_label(m): m for m in match_ids}
+    gekozen = st.selectbox("Kies wedstrijd voor analyse", list(opts.keys()), key="ai_match_sel")
+    mid = opts[gekozen]
+    team_name = st.session_state.get("active_team_name", "Ons team")
+    opponent_name = meta_map.get(mid, "Tegenstander")
+
+    if st.button("🤖 Genereer AI coaching tips", type="primary", use_container_width=True, key="ai_gen_btn"):
+        with st.spinner("Claude analyseert de wedstrijd..."):
+            # Laad events voor deze wedstrijd
+            events = load_events_from_cloud(mid)
+            if not events:
+                st.warning("Geen events gevonden voor deze wedstrijd.")
+            else:
+                import pandas as _pd
+                df_match = _pd.DataFrame(events)
+                tips = generate_ai_tips(df_match, team_name, opponent_name)
+                if tips:
+                    st.session_state["ai_tips_cache"] = tips
+                    st.session_state["ai_tips_match"] = mid
+                else:
+                    st.error("Kon geen tips genereren. Controleer je API key.")
+
+    # Toon gecachte tips
+    if st.session_state.get("ai_tips_cache") and st.session_state.get("ai_tips_match") == mid:
+        st.divider()
+        st.markdown(
+            f'<div style="background:#0f1624;border:1px solid #3b82f644;border-radius:14px;padding:20px 24px;">'
+            f'<div style="color:#60a5fa;font-size:11px;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:0.1em;margin-bottom:12px;">🤖 AI Analyse — {gekozen}</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(st.session_state["ai_tips_cache"])
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.caption("Gegenereerd door Claude · Controleer altijd zelf de inzichten")
+
+
+# ==================================================
+# ONBOARDING — welkomstflow voor nieuwe coaches
+# ==================================================
+def render_onboarding_banner() -> None:
+    """Toon een welkomstbanner als een team nog geen spelers heeft."""
+    roster = st.session_state.get("subs_players") or []
+    team_name = st.session_state.get("active_team_name", "")
+    if roster or not team_name:
+        return  # Alleen tonen als team bestaat maar nog geen spelers heeft
+
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,#0f1e3d 0%,#0f1624 100%);'
+        f'border:1px solid #3b82f644;border-radius:16px;padding:24px 28px;margin-bottom:20px;">'
+        f'<div style="color:#60a5fa;font-size:11px;font-weight:700;letter-spacing:0.1em;'
+        f'text-transform:uppercase;margin-bottom:8px;">🎉 Welkom bij Coach Studio!</div>'
+        f'<div style="color:#f1f5f9;font-size:17px;font-weight:700;margin-bottom:12px;">'
+        f'Volg deze stappen om te beginnen:</div>'
+        f'<div style="display:flex;flex-direction:column;gap:8px;">'
+        f'<div style="display:flex;align-items:center;gap:10px;">'
+        f'<span style="background:#10b98122;color:#34d399;border-radius:50%;width:24px;height:24px;'
+        f'display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">✓</span>'
+        f'<span style="color:#94a3b8;font-size:13px;">Team aangemaakt — <b style="color:#f1f5f9">{team_name}</b></span>'
+        f'</div>'
+        f'<div style="display:flex;align-items:center;gap:10px;">'
+        f'<span style="background:#3b82f622;color:#60a5fa;border-radius:50%;width:24px;height:24px;'
+        f'display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">2</span>'
+        f'<span style="color:#f1f5f9;font-size:13px;">Voeg je spelers toe via <b>Wisselschema → Team beheer</b></span>'
+        f'</div>'
+        f'<div style="display:flex;align-items:center;gap:10px;">'
+        f'<span style="background:#3b82f611;color:#475569;border-radius:50%;width:24px;height:24px;'
+        f'display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;">3</span>'
+        f'<span style="color:#64748b;font-size:13px;">Start je eerste wedstrijd via <b>Wedstrijd analyse</b></span>'
+        f'</div>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ==================================================
 # TOOL SELECTOR — keuze uit 3 tools na team-login
 # ==================================================
 def render_match_selector_on_home() -> None:
@@ -8673,6 +9306,9 @@ def render_tool_selector() -> None:
         unsafe_allow_html=True,
     )
 
+    # --- Onboarding banner voor nieuwe teams ---
+    render_onboarding_banner()
+
     # --- Wedstrijd-picker (vóór tools, zodat je eerst de wedstrijd kiest) ---
     render_match_selector_on_home()
 
@@ -8757,6 +9393,30 @@ def render_tool_selector() -> None:
             "icon": "🎯",
             "desc": "Stel doelen voor het seizoen in, houd de voortgang bij met visuele progressiebars en vier behaalde doelen.",
             "tabs": "Actief · Nieuw · Behaald",
+            "new": True,
+        },
+        {
+            "id": "TEKENBORD",
+            "title": "Tactisch tekenbord",
+            "icon": "🖊️",
+            "desc": "Teken formaties en bewegingen op een interactief veld. Sleep spelers, teken pijlen en lijnen.",
+            "tabs": "Tekenbord",
+            "new": True,
+        },
+        {
+            "id": "KALENDER",
+            "title": "Wedstrijdkalender",
+            "icon": "📆",
+            "desc": "Overzicht van wedstrijden en trainingen. Exporteer naar je telefoon-kalender als .ics bestand.",
+            "tabs": "Agenda · Toevoegen · Export",
+            "new": True,
+        },
+        {
+            "id": "AI_TIPS",
+            "title": "AI Coaching tips",
+            "icon": "🤖",
+            "desc": "Claude analyseert jouw wedstrijddata en geeft concrete tactische coaching-inzichten.",
+            "tabs": "Analyse",
             "new": True,
         },
     ]
@@ -8907,5 +9567,11 @@ elif tool == "SCOUTING":
     render_scouting_screen()
 elif tool == "GOALS":
     render_goals_screen()
+elif tool == "TEKENBORD":
+    render_tekenbord_screen()
+elif tool == "KALENDER":
+    render_kalender_screen()
+elif tool == "AI_TIPS":
+    render_ai_tips_screen()
 else:
     render_tool_selector()
