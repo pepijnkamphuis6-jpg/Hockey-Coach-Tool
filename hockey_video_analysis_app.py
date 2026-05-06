@@ -1214,7 +1214,9 @@ def refresh_derived_state() -> None:
     recalc_score()
     df = build_df()
     st.session_state.auto_notes = generate_auto_notes(df)
-    st.session_state.last_sync_count = len(df)
+    # last_sync_count wordt NIET hier bijgewerkt — alleen door auto_sync_cloud().
+    # Als we dit hier wel zetten, ziet auto_sync_cloud() een mismatch met de cloud
+    # (die het event nog niet heeft) en overschrijft het de lokale events.
 
 
 # ==================================================
@@ -2293,10 +2295,12 @@ def save_event_to_cloud(event_row: dict) -> None:
     client = get_supabase_client()
     if client is None:
         return
-    # Fouten worden bewust doorgegeven zodat de aanroeper ze kan loggen.
     safe_row = {k: v for k, v in event_row.items() if v is not None}
-    client.table("match_events").insert(safe_row).execute()
-    _fetch_events_from_cloud.clear()
+    try:
+        client.table("match_events").insert(safe_row).execute()
+    finally:
+        # Cache altijd legen — ook bij fout — zodat auto_sync verse data ophaalt
+        _fetch_events_from_cloud.clear()
 
 
 def delete_last_event_cloud() -> None:
@@ -5431,13 +5435,25 @@ def render_clip_section(df: pd.DataFrame, active_video_name: str) -> None:
 # ==================================================
 @st.fragment(run_every="2s" if cloud_enabled() else None)
 def auto_sync_cloud():
-    if cloud_enabled() and st.session_state.match_id:
-        fresh = load_events_from_cloud(st.session_state.match_id)
-        if len(fresh) != st.session_state.last_sync_count:
-            st.session_state.events = fresh
-            refresh_derived_state()
-        st.session_state.last_sync_count = len(fresh)
-        st.session_state.last_sync_time = time.strftime("%H:%M:%S")
+    if not cloud_enabled() or not st.session_state.match_id:
+        return
+    fresh = load_events_from_cloud(st.session_state.match_id)
+    local_count = len(st.session_state.get("events") or [])
+    cloud_count = len(fresh)
+
+    # Alleen overschrijven als cloud MEER events heeft dan lokaal
+    # (multi-device sync). Nooit lokale events weggooien die nog
+    # niet door Supabase zijn bevestigd.
+    if cloud_count > local_count:
+        st.session_state.events = fresh
+        refresh_derived_state()
+    elif cloud_count == local_count and cloud_count != st.session_state.last_sync_count:
+        # Zelfde aantal maar andere sync-count: mogelijk undo/edit op ander device
+        st.session_state.events = fresh
+        refresh_derived_state()
+
+    st.session_state.last_sync_count = cloud_count
+    st.session_state.last_sync_time = time.strftime("%H:%M:%S")
 
 
 # ==================================================
