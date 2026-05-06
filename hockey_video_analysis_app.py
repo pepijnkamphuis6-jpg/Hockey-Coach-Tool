@@ -150,6 +150,11 @@ def delete_team(team_id: str) -> None:
     _save_local_teams(teams)
 
 
+def _viewer_code_for_team(team_id: str) -> str:
+    """Genereer de meekijk-code voor een team. Afgeleid van team-ID — geen DB-wijziging nodig."""
+    return "kijk-" + team_id[:6].lower()
+
+
 def require_password() -> None:
     # Session state defaults voor auth
     st.session_state.setdefault("authenticated", False)
@@ -179,7 +184,7 @@ def require_password() -> None:
         # gevonden zijn. Klaps zichzelf open als er iets mis is.
         render_login_diagnostics()
 
-        tabs = st.tabs(["Inloggen bij team", "Nieuw team aanmaken"])
+        tabs = st.tabs(["Inloggen bij team", "Meekijken (assistent)", "Nieuw team aanmaken"])
 
         # ------ TAB 1: Inloggen ------
         with tabs[0]:
@@ -229,8 +234,52 @@ def require_password() -> None:
                     else:
                         st.error("Onjuist wachtwoord voor dit team.")
 
-        # ------ TAB 2: Nieuw team ------
+        # ------ TAB 2: Meekijken (viewer) ------
         with tabs[1]:
+            st.markdown(
+                '<div style="background:#0f1e3d;border:1px solid #3b82f644;border-radius:12px;'
+                'padding:14px 18px;margin-bottom:16px;">'
+                '<div style="color:#60a5fa;font-size:12px;font-weight:700;letter-spacing:.06em;'
+                'text-transform:uppercase;margin-bottom:6px;">👁 Meekijk-modus</div>'
+                '<div style="color:#94a3b8;font-size:13px;line-height:1.6;">'
+                'Log in als assistent-coach. Je kunt alles bekijken maar niets aanpassen. '
+                'De coach deelt de meekijk-code met je.</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            if not teams:
+                st.info("Nog geen teams aangemaakt.")
+            else:
+                v_team_names = [t["name"] for t in teams]
+                v_picked_name = st.selectbox("Team", v_team_names, key="viewer_team_pick")
+                v_code = st.text_input(
+                    "Meekijk-code",
+                    type="password",
+                    key="viewer_code_input",
+                    placeholder="kijk-xxxxxx",
+                )
+                if st.button("Meekijken", use_container_width=True, type="primary", key="viewer_login_btn"):
+                    v_picked = next((t for t in teams if t["name"] == v_picked_name), None)
+                    if v_picked and v_code.strip() == _viewer_code_for_team(v_picked["id"]):
+                        st.session_state.authenticated = True
+                        st.session_state.user_role = "viewer"
+                        st.session_state.active_team_id = v_picked["id"]
+                        st.session_state.active_team_name = v_picked["name"]
+                        st.session_state.active_tool = None
+                        st.session_state.events = []
+                        st.session_state.video_clips = []
+                        for k in ("subs_players", "subs_match", "subs_attendance", "subs_schema"):
+                            if k in st.session_state:
+                                del st.session_state[k]
+                        prefix = f"T-{v_picked['id'][:8]}__"
+                        st.session_state.match_id = f"{prefix}wedstrijd-{uuid.uuid4().hex[:6]}"
+                        st.session_state.team_name = v_picked["name"]
+                        st.rerun()
+                    else:
+                        st.error("Onjuiste meekijk-code.")
+
+        # ------ TAB 3: Nieuw team ------
+        with tabs[2]:
             new_name = st.text_input("Naam van je team", key="new_team_name",
                                      placeholder="Bijv. MO16-1 Hockey Club Xerxes")
             new_pw = st.text_input("Kies een wachtwoord", type="password",
@@ -258,7 +307,9 @@ def require_password() -> None:
 
 def render_logout_button() -> None:
     active_tool = st.session_state.get("active_tool")
-    _, btn_col1, btn_col2, _ = st.columns([6, 1, 1, 0.1])
+    theme = st.session_state.get("app_theme", "dark")
+    theme_icon = "☀️" if theme == "dark" else "🌙"
+    _, btn_col1, btn_col2, btn_col3, _ = st.columns([5, 1, 1, 1, 0.1])
     with btn_col1:
         label = "🏠  Home" if active_tool else "🏠  Home"
         if st.button(label, use_container_width=True, key="back_to_tools_btn",
@@ -266,6 +317,11 @@ def render_logout_button() -> None:
             st.session_state.active_tool = None
             st.rerun()
     with btn_col2:
+        if st.button(theme_icon, use_container_width=True, key="theme_toggle_btn",
+                     help="Wissel licht/donker thema"):
+            st.session_state.app_theme = "light" if theme == "dark" else "dark"
+            st.rerun()
+    with btn_col3:
         if st.button("↩  Uitloggen", use_container_width=True, key="logout_btn",
                      help="Uitloggen en terug naar teamkeuze"):
             st.session_state.authenticated = False
@@ -282,8 +338,8 @@ def has_edit_rights() -> bool:
 
 
 def is_viewer() -> bool:
-    # Géén rollen meer met "kijkmodus" — behouden voor compatibiliteit, retourneert altijd False
-    return False
+    """Retourneert True als de ingelogde gebruiker een kijker (read-only) is."""
+    return st.session_state.get("user_role") == "viewer"
 
 
 def is_coach() -> bool:
@@ -3292,6 +3348,56 @@ def inject_custom_css() -> None:
     """).strip()
     st.markdown(css, unsafe_allow_html=True)
 
+    # Licht thema — CSS overrides wanneer app_theme == "light"
+    if st.session_state.get("app_theme") == "light":
+        light_css = """
+        <style>
+        .stApp { background: #f0f4f8 !important; color: #1e293b !important; }
+        .block-container { background: #f0f4f8 !important; }
+        h1, h2, h3, h4, h5, h6, p, span, label, div { color: #1e293b !important; }
+        .stMarkdown p, .stMarkdown li { color: #334155 !important; }
+        .stTextInput input,
+        .stNumberInput input,
+        .stTextArea textarea,
+        .stSelectbox div[data-baseweb="select"] > div {
+            background: #ffffff !important;
+            color: #1e293b !important;
+            border-color: #cbd5e1 !important;
+        }
+        div.stButton > button {
+            background: #ffffff !important;
+            color: #1e293b !important;
+            border-color: #cbd5e1 !important;
+        }
+        div.stButton > button:hover {
+            background: #e2e8f0 !important;
+            border-color: #3b82f6 !important;
+        }
+        div.stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+            color: white !important;
+            border-color: transparent !important;
+        }
+        [data-testid="stMetricValue"] { color: #1e293b !important; }
+        [data-testid="stMetricLabel"] { color: #475569 !important; }
+        [data-testid="stMetricDelta"] { color: #475569 !important; }
+        .stTabs [data-baseweb="tab-list"] { background: #e2e8f0 !important; }
+        .stTabs [data-baseweb="tab"] { color: #475569 !important; }
+        .stTabs [aria-selected="true"] { color: #1e293b !important; }
+        .stExpander { background: #ffffff !important; border-color: #cbd5e1 !important; }
+        [data-testid="stSidebar"] { background: #e2e8f0 !important; }
+        .tool-card { background: #ffffff !important; border-color: #cbd5e1 !important; }
+        .tool-card-title { color: #1e293b !important; }
+        .tool-card-desc { color: #475569 !important; }
+        .tool-card-tabs { color: #64748b !important; }
+        .cs-welcome { background: linear-gradient(135deg, #e2e8f0 0%, #f0f4f8 100%) !important; }
+        .cs-welcome-title { color: #1e293b !important; }
+        .cs-welcome-sub { color: #475569 !important; }
+        .stCaption, [data-testid="stCaptionContainer"] { color: #64748b !important; }
+        </style>
+        """
+        st.markdown(light_css, unsafe_allow_html=True)
+
 
 def render_info_card(title: str, value: str, subtitle: str, accent: str) -> None:
     accent_class = {"blue": "accent-blue", "red": "accent-red", "green": "accent-green", "orange": "accent-orange"}.get(accent, "accent-blue")
@@ -3323,6 +3429,8 @@ def render_hero_header() -> None:
         "TEKENBORD": "Tactisch tekenbord",
         "KALENDER": "Wedstrijdkalender",
         "AI_TIPS": "AI Coaching tips",
+        "STATS": "Statistieken dashboard",
+        "PLAYER_VIEW": "Spelersbekijkscherm",
     }
     if active_tool:
         subtitle = _tool_labels.get(active_tool, active_tool)
@@ -3332,6 +3440,8 @@ def render_hero_header() -> None:
     is_live = st.session_state.timer_running
     cloud_ok = cloud_enabled()
     chips = []
+    if is_viewer():
+        chips.append('<span class="status-chip" style="background:#7c3aed22;color:#a78bfa;border-color:#7c3aed44;">👁 Meekijker</span>')
     if active_tool == "MATCH_ANALYSIS":
         # Toon kwart en live-indicator alleen in de wedstrijdtool
         chips.append(f'<span class="status-chip">{st.session_state.quarter}</span>')
@@ -3429,6 +3539,10 @@ def render_navigation() -> None:
         screens = [("KALENDER", "Kalender", "📆")]
     elif active_tool == "AI_TIPS":
         screens = [("AI_TIPS", "AI Tips", "🤖")]
+    elif active_tool == "STATS":
+        screens = [("STATS", "Statistieken", "📊")]
+    elif active_tool == "PLAYER_VIEW":
+        screens = [("PLAYER_VIEW", "Spelerskaart", "🃏")]
     else:
         screens = []
 
@@ -5761,6 +5875,98 @@ def render_substitution_screen() -> None:
                         st.session_state.subs_attendance.pop(p["id"], None)
                         st.rerun()
 
+    # Bulk import via Excel/CSV
+    with st.expander("📥 Bulk spelers importeren via Excel/CSV", expanded=False):
+        st.caption(
+            "Upload een Excel- of CSV-bestand met kolommen: **Naam** (verplicht), "
+            "**Linie** (A/M/V/K — optioneel), **Prioriteit** (hoog/normaal/laag — optioneel)."
+        )
+        st.markdown(
+            "**Voorbeeldformaat:**\n"
+            "| Naam | Linie | Prioriteit |\n"
+            "|------|-------|------------|\n"
+            "| Anna | M | normaal |\n"
+            "| Bas | A | hoog |\n"
+            "| Cara | K | normaal |"
+        )
+        uploaded_file = st.file_uploader(
+            "Kies bestand", type=["xlsx", "csv"], key="bulk_import_file"
+        )
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith(".csv"):
+                    df_import = pd.read_csv(uploaded_file)
+                else:
+                    df_import = pd.read_excel(uploaded_file)
+
+                # Normaliseer kolomnamen
+                df_import.columns = [c.strip().lower() for c in df_import.columns]
+
+                # Zoek naam-kolom
+                name_col = next((c for c in df_import.columns if "naam" in c or "name" in c), None)
+                if name_col is None:
+                    st.error("Geen 'Naam'-kolom gevonden. Check het bestand.")
+                else:
+                    line_col = next((c for c in df_import.columns if "linie" in c or "line" in c or "positie" in c), None)
+                    prio_col = next((c for c in df_import.columns if "prio" in c or "speeltijd" in c), None)
+
+                    line_map = {
+                        "a": "A", "aanvaller": "A", "forward": "A",
+                        "m": "M", "middenvelder": "M", "midfielder": "M", "mid": "M",
+                        "v": "V", "verdediger": "V", "defender": "V", "back": "V",
+                        "k": "K", "keeper": "K", "goalkeeper": "K", "gk": "K",
+                    }
+                    prio_map = {
+                        "hoog": "high", "high": "high", "meer": "high", "a-speler": "high",
+                        "laag": "low", "low": "low", "minder": "low",
+                        "normaal": "normal", "normal": "normal",
+                    }
+
+                    preview_rows = []
+                    valid_players = []
+                    existing_names = {p["name"].lower() for p in st.session_state.subs_players}
+
+                    for _, row in df_import.iterrows():
+                        naam = str(row.get(name_col, "")).strip()
+                        if not naam or naam.lower() == "nan":
+                            continue
+                        raw_line = str(row[line_col]).strip().lower() if line_col and pd.notna(row.get(line_col)) else "m"
+                        raw_prio = str(row[prio_col]).strip().lower() if prio_col and pd.notna(row.get(prio_col)) else "normaal"
+                        linie = line_map.get(raw_line, "M")
+                        prioriteit = prio_map.get(raw_prio, "normal")
+                        duplicate = naam.lower() in existing_names
+                        preview_rows.append({
+                            "Naam": naam,
+                            "Linie": linie,
+                            "Prioriteit": prioriteit,
+                            "Status": "⚠️ Bestaat al" if duplicate else "✅ Nieuw",
+                        })
+                        if not duplicate:
+                            valid_players.append({
+                                "id": f"p_{uuid.uuid4().hex[:10]}",
+                                "name": naam,
+                                "line": linie,
+                                "can_keep": linie == "K",
+                                "priority": prioriteit,
+                            })
+
+                    st.markdown(f"**{len(preview_rows)} spelers gevonden — {len(valid_players)} nieuw:**")
+                    st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+
+                    if valid_players:
+                        if st.button(f"✅ {len(valid_players)} spelers importeren", type="primary", key="bulk_import_btn"):
+                            for p in valid_players:
+                                st.session_state.subs_players.append(p)
+                                st.session_state.subs_attendance[p["id"]] = True
+                                cloud_upsert_player(p)
+                                cloud_save_attendance(p["id"], True)
+                            st.success(f"{len(valid_players)} spelers geïmporteerd!")
+                            st.rerun()
+                    else:
+                        st.info("Alle spelers bestaan al — er is niets nieuws te importeren.")
+            except Exception as e:
+                st.error(f"Fout bij importeren: {e}")
+
     # ----- TAB 2: FORMATIES -----
     with tabs[1]:
         st.markdown("#### Formaties van dit team")
@@ -6997,6 +7203,71 @@ def render_player_profile_screen() -> None:
         pivot = trend_df.pivot_table(index="Datum", columns="Categorie",
                                      values="Beoordeling", aggfunc="mean")
         st.line_chart(pivot)
+
+    # ---- Spelervergelijking ----
+    st.divider()
+    st.subheader("⚖️ Speler vergelijken")
+    other_names = [n for n in player_map.keys() if n != selected_name]
+    if not other_names:
+        st.info("Voeg meer spelers toe om te vergelijken.")
+    else:
+        compare_name = st.selectbox("Vergelijk met", other_names, key="profile_compare_sel")
+        compare_player = player_map[compare_name]
+        compare_pid = compare_player["id"]
+        compare_notes = cloud_get_player_notes(compare_pid)
+        compare_rated = [n for n in compare_notes if n.get("rating")]
+
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            line_a = {"K": "Keeper", "V": "Verdediger", "M": "Middenvelder", "A": "Aanvaller"}.get(
+                player.get("line", "M"), player.get("line", "—"))
+            avg_a = round(sum(n["rating"] for n in rated) / len(rated), 1) if rated else "—"
+            st.markdown(
+                f'<div style="background:#0f1e3d;border:1px solid #3b82f644;border-radius:14px;'
+                f'padding:20px;text-align:center;">'
+                f'<div style="color:#60a5fa;font-size:11px;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.08em;margin-bottom:8px;">Speler A</div>'
+                f'<div style="color:#f1f5f9;font-size:20px;font-weight:800;">{player["name"]}</div>'
+                f'<div style="color:#94a3b8;font-size:13px;margin-top:4px;">{line_a}</div>'
+                f'<div style="color:#f1f5f9;font-size:28px;font-weight:800;margin-top:16px;">{avg_a}</div>'
+                f'<div style="color:#64748b;font-size:12px;">gem. beoordeling</div>'
+                f'<div style="color:#94a3b8;font-size:13px;margin-top:8px;">{len(notes)} notities</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with cc2:
+            line_b = {"K": "Keeper", "V": "Verdediger", "M": "Middenvelder", "A": "Aanvaller"}.get(
+                compare_player.get("line", "M"), compare_player.get("line", "—"))
+            avg_b = round(sum(n["rating"] for n in compare_rated) / len(compare_rated), 1) if compare_rated else "—"
+            st.markdown(
+                f'<div style="background:#0f1e3d;border:1px solid #f43f5e44;border-radius:14px;'
+                f'padding:20px;text-align:center;">'
+                f'<div style="color:#f87171;font-size:11px;font-weight:700;text-transform:uppercase;'
+                f'letter-spacing:.08em;margin-bottom:8px;">Speler B</div>'
+                f'<div style="color:#f1f5f9;font-size:20px;font-weight:800;">{compare_player["name"]}</div>'
+                f'<div style="color:#94a3b8;font-size:13px;margin-top:4px;">{line_b}</div>'
+                f'<div style="color:#f1f5f9;font-size:28px;font-weight:800;margin-top:16px;">{avg_b}</div>'
+                f'<div style="color:#64748b;font-size:12px;">gem. beoordeling</div>'
+                f'<div style="color:#94a3b8;font-size:13px;margin-top:8px;">{len(compare_notes)} notities</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # Vergelijkingsgrafiek per categorie
+        if rated or compare_rated:
+            st.markdown("**Gemiddelde beoordeling per categorie**")
+            cats = list(dict.fromkeys(
+                [n["category"] for n in rated] + [n["category"] for n in compare_rated]
+            ))
+            def avg_by_cat(note_list, cat):
+                vals = [n["rating"] for n in note_list if n.get("category") == cat and n.get("rating")]
+                return round(sum(vals) / len(vals), 2) if vals else 0.0
+            df_cmp = pd.DataFrame({
+                "Categorie": cats,
+                player["name"]: [avg_by_cat(rated, c) for c in cats],
+                compare_player["name"]: [avg_by_cat(compare_rated, c) for c in cats],
+            }).set_index("Categorie")
+            st.bar_chart(df_cmp)
 
 
 # ==================================================
@@ -9123,6 +9394,276 @@ def render_ai_tips_screen() -> None:
 
 
 # ==================================================
+# STATISTIEKEN DASHBOARD — geaggregeerde team-statistieken
+# ==================================================
+def render_stats_screen() -> None:
+    """Statistieken dashboard: grafieken over wedstrijddata, doelen en aanwezigheid."""
+    team_name = st.session_state.get("team_name") or st.session_state.get("active_team_name") or "je team"
+    st.markdown(f"### 📊 Statistieken — {team_name}")
+    st.caption("Overzicht van je teamstatistieken over het hele seizoen.")
+
+    hc1, hc2 = st.columns([4, 1])
+    with hc2:
+        if st.button("🔄 Ververs", use_container_width=True, key="stats_refresh"):
+            st.rerun()
+
+    with st.spinner("Data laden…"):
+        matches = _load_all_team_matches(include_unscoped=True)
+
+    own_hint = st.session_state.get("team_name", "")
+    summary = build_season_summary(matches, own_hint)
+    per_match = summary.get("per_match", [])
+
+    if not per_match:
+        st.info("Nog geen wedstrijddata gevonden. Speel eerst een wedstrijd en sync de events naar de cloud.")
+        return
+
+    # ---- KPI-rij ----
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Gespeeld", summary["played"])
+    k2.metric("Gewonnen", summary["wins"])
+    k3.metric("Gelijk", summary["draws"])
+    k4.metric("Verloren", summary["losses"])
+    delta_color = "normal"
+    k5.metric("Winpercentage", f"{summary['win_pct']}%")
+
+    st.divider()
+
+    tab_match, tab_goals, tab_attack, tab_form = st.tabs(
+        ["📅 Per wedstrijd", "⚽ Doelen", "🎯 Aanval", "📈 Vorm"]
+    )
+
+    import datetime as _dt
+
+    # Zorg dat per_match gesorteerd is op datum
+    pm_sorted = sorted(per_match, key=lambda x: x.get("date", ""))
+
+    with tab_match:
+        st.subheader("Doelen per wedstrijd")
+        if pm_sorted:
+            labels = [m.get("pretty_id") or m.get("match_id", f"W{i+1}") for i, m in enumerate(pm_sorted)]
+            goals_for = [m["goals_for"] for m in pm_sorted]
+            goals_against = [m["goals_against"] for m in pm_sorted]
+            df_pm = pd.DataFrame({
+                "Wedstrijd": labels,
+                "Doelpunten voor": goals_for,
+                "Doelpunten tegen": goals_against,
+            }).set_index("Wedstrijd")
+            st.bar_chart(df_pm)
+        # Tabel
+        rows = []
+        for m in pm_sorted:
+            res_emoji = {"W": "✅ W", "G": "🟡 G", "V": "❌ V"}.get(m["result"], m["result"])
+            rows.append({
+                "Wedstrijd": m.get("pretty_id") or m["match_id"],
+                "Tegenstander": m.get("opponent", "—"),
+                "Uitslag": f"{m['goals_for']}–{m['goals_against']}",
+                "Resultaat": res_emoji,
+            })
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    with tab_goals:
+        st.subheader("Doelsaldo seizoen")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Goals voor", summary["goals_for"])
+        c2.metric("Goals tegen", summary["goals_against"])
+        diff = summary["goal_diff"]
+        c3.metric("Saldo", f"{'+' if diff > 0 else ''}{diff}")
+
+        if pm_sorted:
+            st.subheader("Cumulatief doelsaldo")
+            cumulative = []
+            running = 0
+            for m in pm_sorted:
+                running += m["goals_for"] - m["goals_against"]
+                cumulative.append(running)
+            df_cum = pd.DataFrame({
+                "Wedstrijd": [m.get("pretty_id") or f"W{i+1}" for i, m in enumerate(pm_sorted)],
+                "Cumulatief saldo": cumulative,
+            }).set_index("Wedstrijd")
+            st.line_chart(df_cum)
+
+    with tab_attack:
+        st.subheader("Aanvalsstatistieken per wedstrijd")
+        c1, c2 = st.columns(2)
+        c1.metric("Totaal cirkelentries", summary["circle_entries_for"])
+        c2.metric("Totaal schoten", summary["shots_for"])
+        if pm_sorted:
+            df_att = pd.DataFrame({
+                "Wedstrijd": [m.get("pretty_id") or f"W{i+1}" for i, m in enumerate(pm_sorted)],
+                "Cirkelentries": [m["circle_entries"] for m in pm_sorted],
+                "Schoten": [m["shots"] for m in pm_sorted],
+            }).set_index("Wedstrijd")
+            st.bar_chart(df_att)
+
+    with tab_form:
+        st.subheader("Vormcurve — punten per wedstrijd")
+        st.caption("3 punten voor winst, 1 voor gelijk, 0 voor verlies")
+        if pm_sorted:
+            pts_map = {"W": 3, "G": 1, "V": 0}
+            pts_per_match = [pts_map.get(m["result"], 0) for m in pm_sorted]
+            df_form = pd.DataFrame({
+                "Wedstrijd": [m.get("pretty_id") or f"W{i+1}" for i, m in enumerate(pm_sorted)],
+                "Punten": pts_per_match,
+            }).set_index("Wedstrijd")
+            st.bar_chart(df_form)
+
+            # Gemiddelde punten laatste 3 wedstrijden
+            if len(pts_per_match) >= 3:
+                last3 = sum(pts_per_match[-3:]) / 3
+                st.metric("Gemiddeld punten (laatste 3 wedstrijden)", f"{last3:.1f} / 3")
+
+
+# ==================================================
+# SPELERSBEKIJKSCHERM — read-only spelerkaart
+# ==================================================
+def render_player_view_screen() -> None:
+    """Read-only spelerskaart — overzicht voor spelers en ouders."""
+    st.markdown("### 👤 Spelersbekijkscherm")
+    st.caption("Selecteer een speler om zijn/haar overzicht te bekijken.")
+
+    roster = _active_team_roster()
+    if not roster:
+        st.info("Voeg eerst spelers toe via de Wisselschema-tool.")
+        return
+
+    sorted_roster = sorted(roster, key=lambda p: p.get("name", ""))
+    player_map = {p["name"]: p for p in sorted_roster}
+    selected_name = st.selectbox("Kies speler", list(player_map.keys()), key="view_player_sel")
+    player = player_map[selected_name]
+    pid = player["id"]
+
+    line_label = {"K": "Keeper", "V": "Verdediger", "M": "Middenvelder", "A": "Aanvaller"}.get(
+        player.get("line", "M"), player.get("line", "—")
+    )
+
+    # Grote spelerskaart
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,#0f1e3d 0%,#141d2f 100%);'
+        f'border:1px solid #3b82f644;border-radius:20px;padding:32px;margin:16px 0;text-align:center;">'
+        f'<div style="font-size:56px;margin-bottom:12px;">👤</div>'
+        f'<div style="color:#f1f5f9;font-size:28px;font-weight:800;letter-spacing:-0.02em;">'
+        f'{player["name"]}</div>'
+        f'<div style="color:#60a5fa;font-size:15px;font-weight:600;margin-top:8px;">{line_label}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Stats
+    notes = cloud_get_player_notes(pid)
+    rated = [n for n in notes if n.get("rating")]
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Positie", line_label)
+    col2.metric("Notities", len(notes))
+    avg_r = round(sum(n["rating"] for n in rated) / len(rated), 1) if rated else "—"
+    col3.metric("Gem. beoordeling", avg_r)
+
+    if rated:
+        st.divider()
+        st.subheader("📈 Ontwikkelingscurve")
+        import datetime as _dt
+        rows = []
+        for n in rated:
+            rows.append({
+                "Datum": n.get("note_date", "")[:10],
+                "Categorie": n.get("category", ""),
+                "Beoordeling": float(n["rating"]),
+            })
+        trend_df = pd.DataFrame(rows)
+        trend_df["Datum"] = pd.to_datetime(trend_df["Datum"])
+        pivot = trend_df.pivot_table(index="Datum", columns="Categorie",
+                                     values="Beoordeling", aggfunc="mean")
+        st.line_chart(pivot)
+
+    # Recente notities (alleen inhoud zichtbaar, zonder bewerk-opties)
+    public_notes = [n for n in notes if n.get("note")]
+    if public_notes:
+        st.divider()
+        st.subheader("📝 Coach-notities")
+        for note in public_notes[:5]:
+            date_fmt = note.get("note_date", "")[:10]
+            cat = note.get("category", "—")
+            rating_val = note.get("rating")
+            stars = "⭐" * int(rating_val) if rating_val else ""
+            with st.expander(f"{date_fmt} · {cat} {stars}"):
+                st.write(note.get("note", ""))
+
+
+# ==================================================
+# NOTIFICATIE CENTER — komende events op de homepage
+# ==================================================
+def render_notification_center() -> None:
+    """Toon komende wedstrijden en trainingen als notificatie-widget op de homepage."""
+    import datetime as _dt
+    today = _dt.date.today()
+    horizon = today + _dt.timedelta(days=14)  # 2 weken vooruit
+
+    events = cloud_list_kalender()
+    if not events:
+        return  # Stille fallback — geen widget als er niets gepland is
+
+    upcoming = []
+    for ev in events:
+        raw_date = (ev.get("datum") or ev.get("date") or "")[:10]
+        if not raw_date:
+            continue
+        try:
+            ev_date = _dt.date.fromisoformat(raw_date)
+        except ValueError:
+            continue
+        if today <= ev_date <= horizon:
+            upcoming.append({**ev, "_date": ev_date})
+
+    upcoming.sort(key=lambda x: x["_date"])
+
+    if not upcoming:
+        return  # Geen komende events → geen widget
+
+    type_icons = {"Wedstrijd": "🏑", "Training": "🏃", "Toernooi": "🏆", "Anders": "📅"}
+    badges = []
+    for ev in upcoming[:5]:  # Max 5 tonen
+        days_left = (ev["_date"] - today).days
+        t = ev.get("type") or ev.get("event_type") or "Anders"
+        icon = type_icons.get(t, "📅")
+        title = ev.get("title") or ev.get("naam") or t
+        if days_left == 0:
+            when = "Vandaag"
+            color = "#f59e0b"
+        elif days_left == 1:
+            when = "Morgen"
+            color = "#3b82f6"
+        else:
+            when = f"Over {days_left} dagen"
+            color = "#10b981"
+        badges.append(
+            f'<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;'
+            f'background:#0f1e3d;border-radius:10px;flex:1;min-width:180px;">'
+            f'<span style="font-size:20px;">{icon}</span>'
+            f'<div>'
+            f'<div style="color:#f1f5f9;font-size:13px;font-weight:700;">{title}</div>'
+            f'<div style="color:{color};font-size:11px;font-weight:600;">{when} · {ev["_date"].strftime("%d %b")}</div>'
+            f'</div>'
+            f'</div>'
+        )
+
+    badges_html = "".join(badges)
+    count_label = f"{len(upcoming)} komend{'e' if len(upcoming) != 1 else ''} event{'s' if len(upcoming) != 1 else ''}"
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,#0f1e3d 0%,#141d2f 100%);'
+        f'border:1px solid #3b82f644;border-radius:16px;padding:16px 20px;margin-bottom:16px;">'
+        f'<div style="color:#60a5fa;font-size:11px;font-weight:700;letter-spacing:.1em;'
+        f'text-transform:uppercase;margin-bottom:10px;">🔔 Agenda — {count_label}</div>'
+        f'<div style="display:flex;flex-wrap:wrap;gap:8px;">'
+        f'{badges_html}'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ==================================================
 # ONBOARDING — welkomstflow voor nieuwe coaches
 # ==================================================
 def render_onboarding_banner() -> None:
@@ -9309,6 +9850,9 @@ def render_tool_selector() -> None:
     # --- Onboarding banner voor nieuwe teams ---
     render_onboarding_banner()
 
+    # --- Notificatie center: komende events ---
+    render_notification_center()
+
     # --- Wedstrijd-picker (vóór tools, zodat je eerst de wedstrijd kiest) ---
     render_match_selector_on_home()
 
@@ -9419,6 +9963,22 @@ def render_tool_selector() -> None:
             "tabs": "Analyse",
             "new": True,
         },
+        {
+            "id": "STATS",
+            "title": "Statistieken dashboard",
+            "icon": "📊",
+            "desc": "Doelen, vorm, aanval en wedstrijdtrend in één overzichtelijk dashboard met grafieken.",
+            "tabs": "Per wedstrijd · Doelen · Aanval · Vorm",
+            "new": True,
+        },
+        {
+            "id": "PLAYER_VIEW",
+            "title": "Spelersbekijkscherm",
+            "icon": "🃏",
+            "desc": "Deel een read-only spelerskaart met spelers en ouders. Toont beoordeling en groeicurve.",
+            "tabs": "Spelerskaart",
+            "new": True,
+        },
     ]
 
     # Grid — 3 kolommen
@@ -9462,6 +10022,9 @@ def render_tool_selector() -> None:
             with c1:
                 label = f"• {t['name']}" + ("  ✓ (dit team)" if is_active else "")
                 st.markdown(label)
+                if is_active and is_coach():
+                    vc = _viewer_code_for_team(t["id"])
+                    st.caption(f"👁 Meekijk-code: **`{vc}`** — deel dit met assistent-coaches")
             with c2:
                 if not is_active and st.button("Verwijder", key=f"del_team_{t['id']}"):
                     delete_team(t["id"])
@@ -9573,5 +10136,9 @@ elif tool == "KALENDER":
     render_kalender_screen()
 elif tool == "AI_TIPS":
     render_ai_tips_screen()
+elif tool == "STATS":
+    render_stats_screen()
+elif tool == "PLAYER_VIEW":
+    render_player_view_screen()
 else:
     render_tool_selector()

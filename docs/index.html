@@ -17,11 +17,13 @@
   <title>Coach Studio</title>
 
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
       background: #080c18;
-      font-family: -apple-system, 'Inter', BlinkMacSystemFont, sans-serif;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       overflow: hidden;
       height: 100vh;
       height: 100dvh;
@@ -37,81 +39,192 @@
       background: #080c18;
     }
 
-    /* Splash screen — verbergt zich zodra iframe geladen is */
+    /* ── Splash screen ── */
     #splash {
       position: fixed;
       inset: 0;
-      background: #080c18;
+      background: radial-gradient(ellipse at 50% 30%, #0f1e3d 0%, #080c18 70%);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 20px;
       z-index: 100;
-      transition: opacity 0.4s ease;
+      transition: opacity 0.5s ease, transform 0.5s ease;
     }
 
     #splash.hidden {
       opacity: 0;
+      transform: scale(1.05);
       pointer-events: none;
     }
 
+    /* Animated background particles */
+    .splash-particles {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+    .splash-particle {
+      position: absolute;
+      border-radius: 50%;
+      background: radial-gradient(circle, #3b82f644, transparent);
+      animation: float-particle linear infinite;
+    }
+
+    @keyframes float-particle {
+      0% { transform: translateY(100vh) scale(0); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 0.3; }
+      100% { transform: translateY(-20vh) scale(1); opacity: 0; }
+    }
+
+    .splash-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      z-index: 1;
+    }
+
+    /* Logo container met ring-animatie */
+    .splash-logo-wrap {
+      position: relative;
+      width: 100px;
+      height: 100px;
+      margin-bottom: 28px;
+    }
+
+    .splash-logo-ring {
+      position: absolute;
+      inset: -8px;
+      border-radius: 36px;
+      border: 2px solid transparent;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6, #3b82f6) border-box;
+      -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: destination-out;
+      mask-composite: exclude;
+      animation: spin-ring 3s linear infinite;
+    }
+
+    @keyframes spin-ring {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     .splash-logo {
-      width: 80px;
-      height: 80px;
-      border-radius: 22px;
-      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      width: 100px;
+      height: 100px;
+      border-radius: 28px;
+      background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 50%, #4f46e5 100%);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 32px;
+      font-size: 38px;
       font-weight: 900;
       color: white;
-      letter-spacing: -0.04em;
-      box-shadow: 0 16px 48px rgba(59,130,246,0.5);
-      animation: pulse-logo 2s ease-in-out infinite;
+      letter-spacing: -0.05em;
+      box-shadow:
+        0 0 0 1px rgba(59,130,246,0.3),
+        0 20px 60px rgba(59,130,246,0.5),
+        0 0 100px rgba(59,130,246,0.2);
+    }
+
+    .splash-hockey-icon {
+      position: absolute;
+      bottom: -4px;
+      right: -4px;
+      width: 30px;
+      height: 30px;
+      border-radius: 10px;
+      background: #10b981;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      border: 2px solid #080c18;
+      box-shadow: 0 4px 12px rgba(16,185,129,0.5);
     }
 
     .splash-title {
       color: #f1f5f9;
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      margin-bottom: 6px;
+    }
+
+    .splash-title span {
+      background: linear-gradient(90deg, #60a5fa, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
 
     .splash-sub {
-      color: #64748b;
-      font-size: 14px;
+      color: #475569;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      margin-bottom: 40px;
     }
 
-    .splash-loader {
-      width: 40px;
+    /* Progress bar */
+    .splash-progress {
+      width: 120px;
       height: 3px;
       background: #1a2540;
       border-radius: 3px;
       overflow: hidden;
-      margin-top: 8px;
     }
 
-    .splash-loader-bar {
+    .splash-progress-fill {
       height: 100%;
-      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      background: linear-gradient(90deg, #3b82f6, #60a5fa, #8b5cf6);
+      background-size: 200% 100%;
       border-radius: 3px;
-      animation: load 1.8s ease-in-out infinite;
+      animation: progress-slide 1.6s ease-in-out infinite;
     }
 
-    @keyframes load {
-      0% { width: 0%; margin-left: 0; }
-      50% { width: 70%; margin-left: 0; }
-      100% { width: 0%; margin-left: 100%; }
+    @keyframes progress-slide {
+      0% { width: 0%; margin-left: 0; background-position: 0% 50%; }
+      50% { width: 80%; margin-left: 0; background-position: 100% 50%; }
+      100% { width: 0%; margin-left: 120px; background-position: 200% 50%; }
     }
 
-    @keyframes pulse-logo {
-      0%, 100% { box-shadow: 0 16px 48px rgba(59,130,246,0.5); }
-      50% { box-shadow: 0 16px 64px rgba(59,130,246,0.75); }
+    /* Loading dots */
+    .splash-dots {
+      display: flex;
+      gap: 6px;
+      margin-top: 16px;
+    }
+    .splash-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #3b82f6;
+      animation: dot-pulse 1.4s ease-in-out infinite;
+    }
+    .splash-dot:nth-child(1) { animation-delay: 0s; }
+    .splash-dot:nth-child(2) { animation-delay: 0.2s; }
+    .splash-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dot-pulse {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1.2); opacity: 1; }
     }
 
-    /* iOS safe area padding */
+    /* Version badge */
+    .splash-version {
+      position: absolute;
+      bottom: 32px;
+      color: #1e2d47;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* iOS safe area */
     @supports (padding-top: env(safe-area-inset-top)) {
       #app-frame {
         top: env(safe-area-inset-top);
@@ -119,24 +232,26 @@
       }
     }
 
-    /* Install banner — verschijnt automatisch als PWA niet geïnstalleerd is */
+    /* ── Install banner ── */
     #install-banner {
       position: fixed;
-      bottom: 20px;
+      bottom: 24px;
       left: 50%;
-      transform: translateX(-50%) translateY(100px);
+      transform: translateX(-50%) translateY(120px);
       background: linear-gradient(135deg, #0f1624, #141d2f);
       border: 1px solid #1e2d47;
-      border-radius: 16px;
+      border-radius: 20px;
       padding: 16px 20px;
       display: flex;
       align-items: center;
       gap: 14px;
-      max-width: 340px;
-      width: calc(100% - 40px);
-      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      max-width: 360px;
+      width: calc(100% - 48px);
+      box-shadow:
+        0 20px 60px rgba(0,0,0,0.7),
+        0 0 0 1px rgba(59,130,246,0.1);
       z-index: 200;
-      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
     #install-banner.show {
@@ -144,17 +259,18 @@
     }
 
     .banner-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
       background: linear-gradient(135deg, #3b82f6, #1d4ed8);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 900;
       color: white;
       flex-shrink: 0;
+      box-shadow: 0 8px 20px rgba(59,130,246,0.4);
     }
 
     .banner-text { flex: 1; }
@@ -175,23 +291,29 @@
       background: linear-gradient(135deg, #3b82f6, #2563eb);
       color: white;
       border: none;
-      border-radius: 10px;
-      padding: 8px 16px;
+      border-radius: 12px;
+      padding: 10px 18px;
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
       white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(59,130,246,0.4);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .banner-btn:active {
+      transform: scale(0.95);
+      box-shadow: 0 2px 8px rgba(59,130,246,0.3);
     }
 
     .banner-close {
       background: none;
       border: none;
-      color: #64748b;
-      font-size: 18px;
+      color: #475569;
+      font-size: 20px;
       cursor: pointer;
-      padding: 4px;
+      padding: 4px 2px;
       line-height: 1;
-      margin-left: -4px;
     }
   </style>
 </head>
@@ -199,12 +321,32 @@
 
   <!-- Splash screen -->
   <div id="splash">
-    <div class="splash-logo">CS</div>
-    <div class="splash-title">Coach Studio</div>
-    <div class="splash-sub">Jouw coaching platform</div>
-    <div class="splash-loader">
-      <div class="splash-loader-bar"></div>
+    <!-- Achtergrond particles -->
+    <div class="splash-particles" id="particles"></div>
+
+    <!-- Centrale inhoud -->
+    <div class="splash-content">
+      <div class="splash-logo-wrap">
+        <div class="splash-logo-ring"></div>
+        <div class="splash-logo">CS</div>
+        <div class="splash-hockey-icon">🏑</div>
+      </div>
+
+      <div class="splash-title">Coach <span>Studio</span></div>
+      <div class="splash-sub">Jouw hockey coaching platform</div>
+
+      <div class="splash-progress">
+        <div class="splash-progress-fill"></div>
+      </div>
+
+      <div class="splash-dots">
+        <div class="splash-dot"></div>
+        <div class="splash-dot"></div>
+        <div class="splash-dot"></div>
+      </div>
     </div>
+
+    <div class="splash-version">v2.0 · Coach Studio</div>
   </div>
 
   <!-- De Streamlit app als fullscreen iframe -->
@@ -221,23 +363,39 @@
     <div class="banner-icon">CS</div>
     <div class="banner-text">
       <div class="banner-title">Coach Studio installeren</div>
-      <div class="banner-sub">Voeg toe aan je beginscherm</div>
+      <div class="banner-sub">Voeg toe aan je beginscherm voor snelle toegang</div>
     </div>
     <button class="banner-btn" id="install-btn">Installeer</button>
     <button class="banner-close" id="banner-close">×</button>
   </div>
 
   <script>
+    // Genereer achtergrond particles
+    const particleContainer = document.getElementById('particles');
+    for (let i = 0; i < 8; i++) {
+      const p = document.createElement('div');
+      p.className = 'splash-particle';
+      const size = Math.random() * 120 + 60;
+      p.style.cssText = `
+        width: ${size}px;
+        height: ${size}px;
+        left: ${Math.random() * 100}%;
+        animation-duration: ${Math.random() * 6 + 6}s;
+        animation-delay: ${Math.random() * 4}s;
+      `;
+      particleContainer.appendChild(p);
+    }
+
     // Verberg splash als iframe geladen is
     const iframe = document.getElementById('app-frame');
     const splash = document.getElementById('splash');
 
     iframe.addEventListener('load', () => {
-      setTimeout(() => splash.classList.add('hidden'), 600);
+      setTimeout(() => splash.classList.add('hidden'), 800);
     });
 
-    // Fallback: verberg splash na 8 seconden
-    setTimeout(() => splash.classList.add('hidden'), 8000);
+    // Fallback: verberg splash na 10 seconden
+    setTimeout(() => splash.classList.add('hidden'), 10000);
 
     // PWA install prompt (Android Chrome)
     let deferredPrompt;
@@ -249,12 +407,13 @@
       e.preventDefault();
       deferredPrompt = e;
 
-      // Toon banner pas als app al 3 seconden open is
+      // Toon banner pas als app al 4 seconden open is en eerder niet weggedrukt
       setTimeout(() => {
-        if (!window.matchMedia('(display-mode: standalone)').matches) {
+        const dismissed = sessionStorage.getItem('banner-dismissed');
+        if (!dismissed && !window.matchMedia('(display-mode: standalone)').matches) {
           banner.classList.add('show');
         }
-      }, 3000);
+      }, 4000);
     });
 
     installBtn.addEventListener('click', async () => {
@@ -267,7 +426,6 @@
 
     closeBtn.addEventListener('click', () => {
       banner.classList.remove('show');
-      // Niet meer tonen in deze sessie
       sessionStorage.setItem('banner-dismissed', '1');
     });
 
