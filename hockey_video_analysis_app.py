@@ -227,7 +227,7 @@ def require_password() -> None:
                         _fetch_goals.clear()
                         _fetch_kalender.clear()
                         _fetch_team_players.clear()
-                        _fetch_attendance.clear()
+                        _fetch_training_attendance.clear()
                         # Reset wedstrijd-data zodat we niet data van vorig team tonen
                         st.session_state.events = []
                         st.session_state.video_clips = []
@@ -283,7 +283,7 @@ def require_password() -> None:
                         _fetch_goals.clear()
                         _fetch_kalender.clear()
                         _fetch_team_players.clear()
-                        _fetch_attendance.clear()
+                        _fetch_training_attendance.clear()
                         st.session_state.events = []
                         st.session_state.video_clips = []
                         for k in ("subs_players", "subs_match", "subs_attendance", "subs_schema"):
@@ -7109,12 +7109,13 @@ def cloud_add_player_note(player_id: str, note_date: str, category: str,
             "note": note.strip(),
         }).execute()
         _fetch_player_notes.clear()
+        _fetch_all_player_notes.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("notitie opslaan", err)
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _fetch_player_notes(team_id: str, player_id: str) -> list:
     client = get_supabase_client()
     if not team_id or not player_id or client is None:
@@ -7133,12 +7134,42 @@ def _fetch_player_notes(team_id: str, player_id: str) -> list:
         return []
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_all_player_notes(team_id: str) -> list:
+    """Haal alle notities voor het hele team in één query op — voor dashboard gebruik."""
+    client = get_supabase_client()
+    if not team_id or client is None:
+        return []
+    try:
+        response = (
+            client.table("player_notes")
+            .select("*")
+            .eq("team_id", team_id)
+            .order("note_date", desc=True)
+            .execute()
+        )
+        return response.data or []
+    except Exception:
+        return []
+
+
 def cloud_get_player_notes(player_id: str) -> list:
     tid = _active_team_id()
     result = _fetch_player_notes(tid or "", player_id)
     if result is not None:
         mark_cloud_ok()
     return result or []
+
+
+def cloud_get_all_player_notes() -> dict:
+    """Retourneert alle notities gegroepeerd per player_id — één query voor heel team."""
+    tid = _active_team_id()
+    all_notes = _fetch_all_player_notes(tid or "")
+    grouped: dict[str, list] = {}
+    for n in all_notes:
+        pid = n.get("player_id", "")
+        grouped.setdefault(pid, []).append(n)
+    return grouped
 
 
 def cloud_delete_player_note(note_id: str) -> None:
@@ -7149,6 +7180,7 @@ def cloud_delete_player_note(note_id: str) -> None:
     try:
         client.table("player_notes").delete().eq("id", note_id).eq("team_id", tid).execute()
         _fetch_player_notes.clear()
+        _fetch_all_player_notes.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("notitie verwijderen", err)
@@ -7433,14 +7465,16 @@ def cloud_upsert_match_result(match_id: str, opponent: str, home_away: str,
 
 
 def cloud_get_match_result(match_id: str) -> dict | None:
+    tid = _active_team_id()
     client = get_supabase_client()
-    if client is None:
+    if client is None or not tid:
         return None
     try:
         response = (
             client.table("match_results")
             .select("*")
             .eq("match_id", match_id)
+            .eq("team_id", tid)
             .limit(1)
             .execute()
         )
@@ -7893,8 +7927,13 @@ def cloud_delete_training(training_id: str) -> None:
     if not tid or not client:
         return
     try:
+        # Verwijder eerst de aanwezigheidsrecords (cascade)
+        client.table("training_attendance").delete()\
+            .eq("training_id", training_id).eq("team_id", tid).execute()
+        # Dan de training zelf
         client.table("training_sessions").delete().eq("id", training_id).eq("team_id", tid).execute()
         _fetch_trainings.clear()
+        _fetch_training_attendance.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("training verwijderen", err)
@@ -8101,7 +8140,7 @@ def render_training_screen() -> None:
                     key="aanw_tr_sel"
                 )
                 training_id = gekozen_tr["id"]
-                aanwezig_records = cloud_get_attendance(training_id)
+                aanwezig_records = cloud_get_training_attendance(training_id)
                 aanwezig_ids = {r["player_id"] for r in aanwezig_records}
 
                 sorted_roster = sorted(roster, key=lambda p: p["name"])
@@ -8122,7 +8161,7 @@ def render_training_screen() -> None:
 
                 if not is_viewer():
                     if st.button("💾 Aanwezigheid opslaan", type="primary", key="aanw_opslaan"):
-                        cloud_save_attendance(training_id, nieuw_aanwezig)
+                        cloud_save_training_attendance(training_id, nieuw_aanwezig)
                         st.success(f"Aanwezigheid opgeslagen — {aanwezig_count} spelers aanwezig!")
                         st.rerun()
                 else:
@@ -8625,7 +8664,8 @@ def whatsapp_text_training(t: dict) -> str:
 # AANWEZIGHEIDSREGISTRATIE
 # ==================================================
 @st.cache_data(ttl=30, show_spinner=False)
-def _fetch_attendance(team_id: str, training_id: str) -> list:
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_training_attendance(team_id: str, training_id: str) -> list:
     client = get_supabase_client()
     if not team_id or not training_id or client is None:
         return []
@@ -8637,12 +8677,12 @@ def _fetch_attendance(team_id: str, training_id: str) -> list:
         return []
 
 
-def cloud_get_attendance(training_id: str) -> list:
+def cloud_get_training_attendance(training_id: str) -> list:
     tid = _active_team_id()
-    return _fetch_attendance(tid or "", training_id)
+    return _fetch_training_attendance(tid or "", training_id)
 
 
-def cloud_save_attendance(training_id: str, aanwezige_ids: list) -> None:
+def cloud_save_training_attendance(training_id: str, aanwezige_ids: list) -> None:
     tid = _active_team_id()
     client = get_supabase_client()
     if not tid or not client:
@@ -8659,10 +8699,10 @@ def cloud_save_attendance(training_id: str, aanwezige_ids: list) -> None:
                 for pid in aanwezige_ids
             ]
             client.table("training_attendance").insert(rows).execute()
-        _fetch_attendance.clear()
+        _fetch_training_attendance.clear()
         mark_cloud_ok()
     except Exception as err:
-        log_cloud_error("aanwezigheid opslaan", err)
+        log_cloud_error("trainingsaanwezigheid opslaan", err)
 
 
 # ==================================================
@@ -9769,6 +9809,7 @@ def render_stats_screen() -> None:
         all_events = build_df()
         blessures = cloud_list_injuries(active_only=True)
         blessure_ids = {b["player_id"] for b in blessures}
+        all_notes_map = cloud_get_all_player_notes()
 
         for p in roster:
             pid = p["id"]
@@ -9776,7 +9817,7 @@ def render_stats_screen() -> None:
             if not all_events.empty and "player_id" in all_events.columns:
                 goals = int(((all_events["event"] == "Goal") & (all_events["player_id"] == pid)).sum())
 
-            notes = cloud_get_player_notes(pid)
+            notes = all_notes_map.get(pid, [])
             rated = [n for n in notes if n.get("rating")]
             avg_r = round(sum(n["rating"] for n in rated) / len(rated), 1) if rated else None
 
