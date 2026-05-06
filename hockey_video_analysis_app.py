@@ -219,6 +219,15 @@ def require_password() -> None:
                         st.session_state.active_team_id = picked["id"]
                         st.session_state.active_team_name = picked["name"]
                         st.session_state.active_tool = None
+                        # Cache leegmaken zodat nieuw team geen stale data ziet
+                        _fetch_trainings.clear()
+                        _fetch_exercises.clear()
+                        _fetch_injuries.clear()
+                        _fetch_scouting.clear()
+                        _fetch_goals.clear()
+                        _fetch_kalender.clear()
+                        _fetch_team_players.clear()
+                        _fetch_attendance.clear()
                         # Reset wedstrijd-data zodat we niet data van vorig team tonen
                         st.session_state.events = []
                         st.session_state.video_clips = []
@@ -266,6 +275,15 @@ def require_password() -> None:
                         st.session_state.active_team_id = v_picked["id"]
                         st.session_state.active_team_name = v_picked["name"]
                         st.session_state.active_tool = None
+                        # Cache leegmaken zodat nieuw team geen stale data ziet
+                        _fetch_trainings.clear()
+                        _fetch_exercises.clear()
+                        _fetch_injuries.clear()
+                        _fetch_scouting.clear()
+                        _fetch_goals.clear()
+                        _fetch_kalender.clear()
+                        _fetch_team_players.clear()
+                        _fetch_attendance.clear()
                         st.session_state.events = []
                         st.session_state.video_clips = []
                         for k in ("subs_players", "subs_match", "subs_attendance", "subs_schema"):
@@ -345,6 +363,25 @@ def is_viewer() -> bool:
 def is_coach() -> bool:
     """Volledige rechten — mag wedstrijd resetten en gevoelige acties uitvoeren."""
     return st.session_state.get("user_role") == "coach"
+
+
+def render_viewer_banner() -> None:
+    """Toon een banner als de gebruiker in meekijk-modus is (viewer)."""
+    if not is_viewer():
+        return
+    st.markdown(
+        '<div style="background:linear-gradient(135deg,#2e1065 0%,#1e1b4b 100%);'
+        'border:1px solid #7c3aed44;border-radius:12px;padding:12px 18px;margin-bottom:16px;'
+        'display:flex;align-items:center;gap:10px;">'
+        '<span style="font-size:18px;">👁</span>'
+        '<div>'
+        '<div style="color:#c4b5fd;font-size:13px;font-weight:700;">Meekijk-modus</div>'
+        '<div style="color:#7c3aed;font-size:12px;">Je kan alles bekijken maar niets aanpassen. '
+        'Vraag de coach om toegang als assistent.</div>'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # (require_password() wordt onderaan in MAIN aangeroepen, zodat alle
@@ -6715,6 +6752,7 @@ def render_season_screen() -> None:
     with hc1:
         st.markdown(f"### 📊 Seizoensoverzicht — {team_name}")
         st.caption("Alle wedstrijden en events van dit team samengevat in één overzicht.")
+        st.caption("Wedstrijdresultaten, doelsaldo en form. Voor spelersstatistieken → Statistieken dashboard.")
     with hc2:
         if st.button("🔄  Ververs", use_container_width=True, key="season_refresh"):
             st.rerun()
@@ -7101,6 +7139,7 @@ def cloud_delete_player_note(note_id: str) -> None:
 
 
 def render_player_profile_screen() -> None:
+    render_viewer_banner()
     st.markdown("### 👤 Spelersprofiel")
 
     roster = _active_team_roster()
@@ -7113,6 +7152,33 @@ def render_player_profile_screen() -> None:
     selected_name = st.selectbox("Kies speler", list(player_map.keys()), key="profile_player_sel")
     player = player_map[selected_name]
     pid = player["id"]
+
+    # Laad extra spelersdata uit cloud
+    def _load_player_meta(player_id: str) -> dict:
+        """Laad extra meta-data voor een speler (geboortedatum, lengte, rugnummer etc.)"""
+        client = get_supabase_client()
+        tid = _active_team_id()
+        if not tid or client is None:
+            return {}
+        try:
+            r = client.table("player_meta").select("*").eq("player_id", player_id).eq("team_id", tid).execute()
+            return (r.data or [{}])[0] if r.data else {}
+        except Exception:
+            return {}
+
+    def _save_player_meta(player_id: str, meta: dict) -> None:
+        client = get_supabase_client()
+        tid = _active_team_id()
+        if not tid or client is None:
+            return
+        try:
+            meta["player_id"] = player_id
+            meta["team_id"] = tid
+            client.table("player_meta").upsert(meta, on_conflict="player_id,team_id").execute()
+        except Exception as err:
+            log_cloud_error("player meta opslaan", err)
+
+    player_meta = _load_player_meta(pid)
 
     # --- Stats uit match events (gebruik al gebouwde df uit session state, geen extra query) ---
     all_events = build_df()  # build_df gebruikt session_state.events — geen Supabase call
@@ -7137,29 +7203,81 @@ def render_player_profile_screen() -> None:
 
     st.divider()
 
+    # ── Spelersinformatie uitbreiding ──
+    with st.expander("📋 Spelersgegevens", expanded=False):
+        if not is_viewer():
+            with st.form("player_meta_form"):
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                with mc1:
+                    rugnummer = st.number_input("Rugnummer", min_value=1, max_value=99,
+                                                value=int(player_meta.get("rugnummer", 1)), key="pm_rug")
+                with mc2:
+                    leeftijd = st.number_input("Leeftijd", min_value=6, max_value=60,
+                                               value=int(player_meta.get("leeftijd", 16)), key="pm_leeftijd")
+                with mc3:
+                    lengte = st.number_input("Lengte (cm)", min_value=100, max_value=220,
+                                             value=int(player_meta.get("lengte", 170)), key="pm_lengte")
+                with mc4:
+                    dominant_been = st.selectbox("Dominant been", ["Rechts", "Links", "Beide"],
+                                                 index=["Rechts", "Links", "Beide"].index(player_meta.get("dominant_been", "Rechts")),
+                                                 key="pm_been")
+                persoonlijk_doel = st.text_area("Persoonlijk seizoensdoel",
+                                                value=player_meta.get("persoonlijk_doel", ""),
+                                                placeholder="Bijv: 10 goals scoren dit seizoen",
+                                                height=60, key="pm_doel")
+                coach_label = st.selectbox("Coach-label",
+                                           ["Geen", "Aanvoerder", "Vice-aanvoerder", "Talentvolle speler", "Doorgroeier", "Stabiele kracht"],
+                                           index=["Geen", "Aanvoerder", "Vice-aanvoerder", "Talentvolle speler", "Doorgroeier", "Stabiele kracht"].index(player_meta.get("coach_label", "Geen")),
+                                           key="pm_label")
+                if st.form_submit_button("💾 Gegevens opslaan", type="primary"):
+                    _save_player_meta(pid, {
+                        "rugnummer": int(rugnummer),
+                        "leeftijd": int(leeftijd),
+                        "lengte": int(lengte),
+                        "dominant_been": dominant_been,
+                        "persoonlijk_doel": persoonlijk_doel,
+                        "coach_label": coach_label,
+                    })
+                    st.success("Spelersgegevens opgeslagen!")
+                    st.rerun()
+        else:
+            # Read-only weergave voor viewers
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("Rugnummer", player_meta.get("rugnummer", "—"))
+            mc2.metric("Leeftijd", player_meta.get("leeftijd", "—"))
+            mc3.metric("Lengte", f"{player_meta.get('lengte', '—')} cm" if player_meta.get("lengte") else "—")
+            mc4.metric("Dominant been", player_meta.get("dominant_been", "—"))
+            if player_meta.get("coach_label") and player_meta["coach_label"] != "Geen":
+                st.markdown(f"**Label:** 🏷️ {player_meta['coach_label']}")
+            if player_meta.get("persoonlijk_doel"):
+                st.markdown(f"**Seizoensdoel:** {player_meta['persoonlijk_doel']}")
+
     col_notes, col_form = st.columns([1.5, 1])
 
     with col_form:
         st.subheader("Notitie toevoegen")
-        with st.form("profile_note_form"):
-            note_date = st.date_input("Datum", value=__import__("datetime").date.today())
-            category = st.selectbox("Categorie", NOTE_CATEGORIES)
-            rating = st.select_slider(
-                "Beoordeling (optioneel)",
-                options=["—", 1, 2, 3, 4, 5],
-                value="—",
-            )
-            note_text = st.text_area("Notitie", placeholder="Wat viel je op bij deze speler?", height=130)
-            submitted = st.form_submit_button("Opslaan", type="primary")
+        if not is_viewer():
+            with st.form("profile_note_form"):
+                note_date = st.date_input("Datum", value=__import__("datetime").date.today())
+                category = st.selectbox("Categorie", NOTE_CATEGORIES)
+                rating = st.select_slider(
+                    "Beoordeling (optioneel)",
+                    options=["—", 1, 2, 3, 4, 5],
+                    value="—",
+                )
+                note_text = st.text_area("Notitie", placeholder="Wat viel je op bij deze speler?", height=130)
+                submitted = st.form_submit_button("Opslaan", type="primary")
 
-        if submitted:
-            if not note_text.strip():
-                st.error("Vul een notitie in.")
-            else:
-                rating_val = None if rating == "—" else int(rating)
-                cloud_add_player_note(pid, note_date.strftime("%Y-%m-%d"), category, rating_val, note_text)
-                st.success("Notitie opgeslagen.")
-                st.rerun()
+            if submitted:
+                if not note_text.strip():
+                    st.error("Vul een notitie in.")
+                else:
+                    rating_val = None if rating == "—" else int(rating)
+                    cloud_add_player_note(pid, note_date.strftime("%Y-%m-%d"), category, rating_val, note_text)
+                    st.success("Notitie opgeslagen.")
+                    st.rerun()
+        else:
+            st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
     with col_notes:
         st.subheader("Notities")
@@ -7180,9 +7298,10 @@ def render_player_profile_screen() -> None:
                 date_fmt = note.get("note_date", "")[:10]
                 with st.expander(f"{date_fmt} · {note.get('category', '—')} {stars}"):
                     st.write(note.get("note", ""))
-                    if st.button("Verwijder", key=f"del_note_{note['id']}"):
-                        cloud_delete_player_note(note["id"])
-                        st.rerun()
+                    if not is_viewer():
+                        if st.button("Verwijder", key=f"del_note_{note['id']}"):
+                            cloud_delete_player_note(note["id"])
+                            st.rerun()
 
     st.divider()
     st.subheader("Beoordelingstrend per categorie")
@@ -7577,6 +7696,7 @@ def _render_field_svg_selection(pos_player_map: dict) -> str:
 
 
 def render_selection_screen() -> None:
+    render_viewer_banner()
     st.markdown("### 👥 Selectietool")
 
     roster = _active_team_roster()
@@ -7623,44 +7743,59 @@ def render_selection_screen() -> None:
     pos_player_map = {}
     with col_form:
         st.subheader("Basisopstelling")
-        with st.form("selectie_form"):
+        if not is_viewer():
+            with st.form("selectie_form"):
+                for pos_key in positie_keys:
+                    label = HOCKEY_POSITIONS[pos_key][0]
+                    default_idx = 0
+                    default_naam = bestaand.get(pos_key, "")
+                    if default_naam in speler_namen:
+                        default_idx = speler_namen.index(default_naam)
+                    gekozen = st.selectbox(
+                        f"{pos_key} — {label}",
+                        speler_namen,
+                        index=default_idx,
+                        key=f"sel_pos_{pos_key}",
+                    )
+                    if gekozen != "—":
+                        pos_player_map[pos_key] = gekozen
+
+                st.markdown("**Reserves**")
+                geselecteerd = set(pos_player_map.values())
+                reserves = st.multiselect(
+                    "Reserves / wisselspelers",
+                    [p["name"] for p in roster if p["name"] not in geselecteerd],
+                    default=[p for p in bestaand.get("__reserves__", "").split(",") if p],
+                    key="sel_reserves",
+                )
+                opslaan = st.form_submit_button("💾 Opslaan", type="primary")
+
+            if opslaan:
+                rows = [
+                    {"wedstrijd_id": wedstrijd_id, "team_id": _active_team_id(),
+                     "positie": pos, "speler_naam": naam, "is_reserve": False}
+                    for pos, naam in pos_player_map.items()
+                ]
+                for r in reserves:
+                    rows.append({"wedstrijd_id": wedstrijd_id, "team_id": _active_team_id(),
+                                  "positie": "__reserves__", "speler_naam": r, "is_reserve": True})
+                cloud_save_selection(wedstrijd_id, rows)
+                st.success("Selectie opgeslagen!")
+                st.rerun()
+        else:
+            # Read-only view: show existing selection
             for pos_key in positie_keys:
                 label = HOCKEY_POSITIONS[pos_key][0]
-                default_idx = 0
-                default_naam = bestaand.get(pos_key, "")
-                if default_naam in speler_namen:
-                    default_idx = speler_namen.index(default_naam)
-                gekozen = st.selectbox(
-                    f"{pos_key} — {label}",
-                    speler_namen,
-                    index=default_idx,
-                    key=f"sel_pos_{pos_key}",
-                )
-                if gekozen != "—":
-                    pos_player_map[pos_key] = gekozen
-
-            st.markdown("**Reserves**")
-            geselecteerd = set(pos_player_map.values())
-            reserves = st.multiselect(
-                "Reserves / wisselspelers",
-                [p["name"] for p in roster if p["name"] not in geselecteerd],
-                default=[p for p in bestaand.get("__reserves__", "").split(",") if p],
-                key="sel_reserves",
-            )
-            opslaan = st.form_submit_button("💾 Opslaan", type="primary")
-
-        if opslaan:
-            rows = [
-                {"wedstrijd_id": wedstrijd_id, "team_id": _active_team_id(),
-                 "positie": pos, "speler_naam": naam, "is_reserve": False}
-                for pos, naam in pos_player_map.items()
-            ]
-            for r in reserves:
-                rows.append({"wedstrijd_id": wedstrijd_id, "team_id": _active_team_id(),
-                              "positie": "__reserves__", "speler_naam": r, "is_reserve": True})
-            cloud_save_selection(wedstrijd_id, rows)
-            st.success("Selectie opgeslagen!")
-            st.rerun()
+                naam = bestaand.get(pos_key, "—")
+                st.markdown(f"**{pos_key}** — {label}: {naam}")
+            reserves_str = bestaand.get("__reserves__", "")
+            reserves = [r for r in reserves_str.split(",") if r] if reserves_str else []
+            for pos, naam in bestaand.items():
+                if pos != "__reserves__":
+                    pos_player_map[pos] = naam
+            if reserves:
+                st.markdown(f"**Reserves:** {', '.join(reserves)}")
+            st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
     with col_field:
         st.subheader("Veldopstelling")
@@ -7787,6 +7922,7 @@ def cloud_list_exercises() -> list:
 
 
 def render_training_screen() -> None:
+    render_viewer_banner()
     import datetime as _dt
     st.markdown("### 📅 Trainingsplanning")
 
@@ -7800,35 +7936,38 @@ def render_training_screen() -> None:
 
         with col_form:
             st.subheader("Nieuwe sessie")
-            with st.form("training_form"):
-                datum = st.date_input("Datum", value=_dt.date.today(), key="tr_datum")
-                c1, c2 = st.columns(2)
-                start = c1.time_input("Starttijd", value=_dt.time(18, 0), key="tr_start")
-                eind = c2.time_input("Eindtijd", value=_dt.time(19, 30), key="tr_eind")
-                locatie = st.text_input("Locatie / veld", placeholder="Hoofdveld 1", key="tr_loc")
-                thema = st.selectbox("Thema", TRAINING_THEMAS, key="tr_thema")
-                notities = st.text_area("Notities / doelen", height=90, key="tr_notes",
-                                        placeholder="Wat wil je bereiken in deze training?")
+            if not is_viewer():
+                with st.form("training_form"):
+                    datum = st.date_input("Datum", value=_dt.date.today(), key="tr_datum")
+                    c1, c2 = st.columns(2)
+                    start = c1.time_input("Starttijd", value=_dt.time(18, 0), key="tr_start")
+                    eind = c2.time_input("Eindtijd", value=_dt.time(19, 30), key="tr_eind")
+                    locatie = st.text_input("Locatie / veld", placeholder="Hoofdveld 1", key="tr_loc")
+                    thema = st.selectbox("Thema", TRAINING_THEMAS, key="tr_thema")
+                    notities = st.text_area("Notities / doelen", height=90, key="tr_notes",
+                                            placeholder="Wat wil je bereiken in deze training?")
 
-                # Oefeningen koppelen
-                oefeningen = cloud_list_exercises()
-                oefen_namen = {o["naam"]: o["id"] for o in oefeningen}
-                gekoppeld = st.multiselect("Oefeningen koppelen (optioneel)",
-                                           list(oefen_namen.keys()), key="tr_oefen")
-                opslaan = st.form_submit_button("➕ Toevoegen", type="primary")
+                    # Oefeningen koppelen
+                    oefeningen = cloud_list_exercises()
+                    oefen_namen = {o["naam"]: o["id"] for o in oefeningen}
+                    gekoppeld = st.multiselect("Oefeningen koppelen (optioneel)",
+                                               list(oefen_namen.keys()), key="tr_oefen")
+                    opslaan = st.form_submit_button("➕ Toevoegen", type="primary")
 
-            if opslaan:
-                cloud_save_training({
-                    "datum": datum.isoformat(),
-                    "starttijd": start.strftime("%H:%M"),
-                    "eindtijd": eind.strftime("%H:%M"),
-                    "locatie": locatie,
-                    "thema": thema,
-                    "notities": notities,
-                    "oefening_ids": [oefen_namen[n] for n in gekoppeld],
-                })
-                st.success("Training gepland!")
-                st.rerun()
+                if opslaan:
+                    cloud_save_training({
+                        "datum": datum.isoformat(),
+                        "starttijd": start.strftime("%H:%M"),
+                        "eindtijd": eind.strftime("%H:%M"),
+                        "locatie": locatie,
+                        "thema": thema,
+                        "notities": notities,
+                        "oefening_ids": [oefen_namen[n] for n in gekoppeld],
+                    })
+                    st.success("Training gepland!")
+                    st.rerun()
+            else:
+                st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
         with col_list:
             st.subheader("Geplande sessies")
@@ -7858,34 +7997,37 @@ def render_training_screen() -> None:
 
         with col_add:
             st.subheader("Oefening toevoegen")
-            with st.form("oefening_form"):
-                naam = st.text_input("Naam", placeholder="Bijv. 4-hoeken passing", key="oe_naam")
-                cat = st.selectbox("Categorie", OEFENING_CATEGORIEEN, key="oe_cat")
-                duur = st.number_input("Duur (minuten)", min_value=5, max_value=60,
-                                       value=15, step=5, key="oe_duur")
-                c1, c2 = st.columns(2)
-                min_sp = c1.number_input("Min. spelers", min_value=2, value=6, key="oe_min")
-                max_sp = c2.number_input("Max. spelers", min_value=2, value=20, key="oe_max")
-                beschrijving = st.text_area("Beschrijving / uitleg", height=100, key="oe_desc")
-                materiaal = st.text_input("Materiaal", placeholder="Bijv. ballen, pionnen, goals",
-                                          key="oe_mat")
-                add_oe = st.form_submit_button("➕ Toevoegen", type="primary")
+            if not is_viewer():
+                with st.form("oefening_form"):
+                    naam = st.text_input("Naam", placeholder="Bijv. 4-hoeken passing", key="oe_naam")
+                    cat = st.selectbox("Categorie", OEFENING_CATEGORIEEN, key="oe_cat")
+                    duur = st.number_input("Duur (minuten)", min_value=5, max_value=60,
+                                           value=15, step=5, key="oe_duur")
+                    c1, c2 = st.columns(2)
+                    min_sp = c1.number_input("Min. spelers", min_value=2, value=6, key="oe_min")
+                    max_sp = c2.number_input("Max. spelers", min_value=2, value=20, key="oe_max")
+                    beschrijving = st.text_area("Beschrijving / uitleg", height=100, key="oe_desc")
+                    materiaal = st.text_input("Materiaal", placeholder="Bijv. ballen, pionnen, goals",
+                                              key="oe_mat")
+                    add_oe = st.form_submit_button("➕ Toevoegen", type="primary")
 
-            if add_oe:
-                if not naam.strip():
-                    st.error("Vul een naam in.")
-                else:
-                    cloud_save_exercise({
-                        "naam": naam.strip(),
-                        "categorie": cat,
-                        "duur_minuten": int(duur),
-                        "min_spelers": int(min_sp),
-                        "max_spelers": int(max_sp),
-                        "beschrijving": beschrijving.strip(),
-                        "materiaal": materiaal.strip(),
-                    })
-                    st.success("Oefening opgeslagen!")
-                    st.rerun()
+                if add_oe:
+                    if not naam.strip():
+                        st.error("Vul een naam in.")
+                    else:
+                        cloud_save_exercise({
+                            "naam": naam.strip(),
+                            "categorie": cat,
+                            "duur_minuten": int(duur),
+                            "min_spelers": int(min_sp),
+                            "max_spelers": int(max_sp),
+                            "beschrijving": beschrijving.strip(),
+                            "materiaal": materiaal.strip(),
+                        })
+                        st.success("Oefening opgeslagen!")
+                        st.rerun()
+            else:
+                st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
         with col_lib:
             st.subheader("Oefeningen bibliotheek")
@@ -7962,10 +8104,13 @@ def render_training_screen() -> None:
                 aanwezig_count = len(nieuw_aanwezig)
                 st.caption(f"{aanwezig_count} van {len(roster)} spelers aanwezig")
 
-                if st.button("💾 Aanwezigheid opslaan", type="primary", key="aanw_opslaan"):
-                    cloud_save_attendance(training_id, nieuw_aanwezig)
-                    st.success(f"Aanwezigheid opgeslagen — {aanwezig_count} spelers aanwezig!")
-                    st.rerun()
+                if not is_viewer():
+                    if st.button("💾 Aanwezigheid opslaan", type="primary", key="aanw_opslaan"):
+                        cloud_save_attendance(training_id, nieuw_aanwezig)
+                        st.success(f"Aanwezigheid opgeslagen — {aanwezig_count} spelers aanwezig!")
+                        st.rerun()
+                else:
+                    st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
     # ─── TAB: PDF Export ───
     with tab_export:
@@ -8115,6 +8260,7 @@ def cloud_resolve_injury(injury_id: str) -> None:
 
 
 def render_injury_screen() -> None:
+    render_viewer_banner()
     import datetime as _dt
     st.markdown("### 🩹 Blessure tracker")
 
@@ -8164,15 +8310,16 @@ def render_injury_screen() -> None:
                     f'</div>',
                     unsafe_allow_html=True,
                 )
-                if st.button("✅ Hersteld", key=f"herstel_{b['id']}", help="Markeer als hersteld"):
-                    cloud_resolve_injury(b["id"])
-                    st.success(f"{b.get('player_name','Speler')} is hersteld!")
-                    st.rerun()
+                if not is_viewer():
+                    if st.button("✅ Hersteld", key=f"herstel_{b['id']}", help="Markeer als hersteld"):
+                        cloud_resolve_injury(b["id"])
+                        st.success(f"{b.get('player_name','Speler')} is hersteld!")
+                        st.rerun()
 
     with tab_add:
         if not roster:
             st.info("Voeg eerst spelers toe.")
-        else:
+        elif not is_viewer():
             with st.form("blessure_form"):
                 speler_map = {p["name"]: p["id"] for p in sorted(roster, key=lambda x: x["name"])}
                 speler_naam = st.selectbox("Speler", list(speler_map.keys()), key="bl_speler")
@@ -8200,6 +8347,8 @@ def render_injury_screen() -> None:
                 })
                 st.success(f"Blessure van {speler_naam} geregistreerd.")
                 st.rerun()
+        else:
+            st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
     with tab_historie:
         alle = cloud_list_injuries(active_only=False)
@@ -8287,6 +8436,7 @@ def cloud_list_scouting() -> list:
 
 
 def render_scouting_screen() -> None:
+    render_viewer_banner()
     st.markdown("### 🔍 Tegenstander scouting")
 
     tab_overzicht, tab_nieuw = st.tabs(["📋 Overzicht", "➕ Nieuw rapport"])
@@ -8311,52 +8461,66 @@ def render_scouting_screen() -> None:
                 )
 
     with tab_nieuw:
-        with st.form("scouting_form"):
-            tegenstander = st.text_input("Tegenstander", placeholder="Bijv. HC Rotterdam", key="sc_teg")
-            c1, c2 = st.columns(2)
-            wedstrijd_datum = c1.date_input("Geobserveerde wedstrijd", key="sc_datum")
-            formatie = c2.selectbox("Formatie tegenstander", FORMATIES_SCOUTING, key="sc_form")
-            speelstijl = st.selectbox("Speelstijl", SPEELSTIJLEN, key="sc_stijl")
+        if not is_viewer():
+            with st.form("scouting_form"):
+                tegenstander = st.text_input("Tegenstander", placeholder="Bijv. HC Rotterdam", key="sc_teg")
+                c1, c2 = st.columns(2)
+                wedstrijd_datum = c1.date_input("Geobserveerde wedstrijd", key="sc_datum")
+                formatie = c2.selectbox("Formatie tegenstander", FORMATIES_SCOUTING, key="sc_form")
+                speelstijl = st.selectbox("Speelstijl", SPEELSTIJLEN, key="sc_stijl")
 
-            st.markdown("**Analyse**")
-            c3, c4 = st.columns(2)
-            sterk = c3.text_area("💪 Sterke punten", height=100, key="sc_sterk",
-                                  placeholder="Waar zijn ze goed in?")
-            zwak = c4.text_area("⚠️ Zwakke punten", height=100, key="sc_zwak",
-                                 placeholder="Waar kunnen wij van profiteren?")
+                st.markdown("**Analyse**")
+                c3, c4 = st.columns(2)
+                sterk = c3.text_area("💪 Sterke punten", height=100, key="sc_sterk",
+                                      placeholder="Waar zijn ze goed in?")
+                zwak = c4.text_area("⚠️ Zwakke punten", height=100, key="sc_zwak",
+                                     placeholder="Waar kunnen wij van profiteren?")
 
-            st.markdown("**Standaardsituaties**")
-            c5, c6 = st.columns(2)
-            corner_aan = c5.text_area("🔱 Corners aanval", height=80, key="sc_corn_a",
-                                       placeholder="Hoe nemen ze corners?")
-            corner_verd = c6.text_area("🛡️ Corners verdediging", height=80, key="sc_corn_v",
-                                        placeholder="Hoe verdedigen ze corners?")
+                st.markdown("**Standaardsituaties**")
+                c5, c6 = st.columns(2)
+                corner_aan = c5.text_area("🔱 Corners aanval", height=80, key="sc_corn_a",
+                                           placeholder="Hoe nemen ze corners?")
+                corner_verd = c6.text_area("🛡️ Corners verdediging", height=80, key="sc_corn_v",
+                                            placeholder="Hoe verdedigen ze corners?")
 
-            aanpak = st.text_area("🎯 Aanbevolen aanpak voor ons team", height=100,
-                                   key="sc_aanpak",
-                                   placeholder="Welke tactiek werkt het beste tegen hen?")
+                aanpak = st.text_area("🎯 Aanbevolen aanpak voor ons team", height=100,
+                                       key="sc_aanpak",
+                                       placeholder="Welke tactiek werkt het beste tegen hen?")
 
-            opslaan = st.form_submit_button("💾 Opslaan", type="primary")
+                opslaan = st.form_submit_button("💾 Opslaan", type="primary")
 
-        if opslaan:
-            if not tegenstander.strip():
-                st.error("Vul de naam van de tegenstander in.")
-            else:
-                cloud_save_scouting({
-                    "tegenstander": tegenstander.strip(),
-                    "wedstrijd_datum": wedstrijd_datum.isoformat(),
-                    "formatie": formatie,
-                    "speelstijl": speelstijl,
-                    "sterke_punten": sterk.strip(),
-                    "zwakke_punten": zwak.strip(),
-                    "corners_aanval": corner_aan.strip(),
-                    "corners_verdediging": corner_verd.strip(),
-                    "aanbevolen_aanpak": aanpak.strip(),
-                })
-                st.success("Scoutingrapport opgeslagen!")
-                st.rerun()
+            if opslaan:
+                if not tegenstander.strip():
+                    st.error("Vul de naam van de tegenstander in.")
+                else:
+                    cloud_save_scouting({
+                        "tegenstander": tegenstander.strip(),
+                        "wedstrijd_datum": wedstrijd_datum.isoformat(),
+                        "formatie": formatie,
+                        "speelstijl": speelstijl,
+                        "sterke_punten": sterk.strip(),
+                        "zwakke_punten": zwak.strip(),
+                        "corners_aanval": corner_aan.strip(),
+                        "corners_verdediging": corner_verd.strip(),
+                        "aanbevolen_aanpak": aanpak.strip(),
+                    })
+                    st.success("Scoutingrapport opgeslagen!")
+                    st.rerun()
+        else:
+            st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
     with tab_overzicht:
+        # Koppeling met wedstrijddata
+        match_results = []
+        try:
+            client_sb = get_supabase_client()
+            tid = _active_team_id()
+            if client_sb and tid:
+                resp = client_sb.table("match_results").select("*").eq("team_id", tid).execute()
+                match_results = resp.data or []
+        except Exception:
+            pass
+
         rapporten = cloud_list_scouting()
         if not rapporten:
             st.info("Nog geen scoutingrapporten. Voeg er een toe via de tab hiernaast.")
@@ -8386,6 +8550,19 @@ def render_scouting_screen() -> None:
                         if r.get("aanbevolen_aanpak"):
                             st.markdown("**🎯 Aanpak voor ons:**")
                             st.success(r["aanbevolen_aanpak"])
+
+                    # Wedstrijdhistorie vs. tegenstander
+                    teg = r.get("tegenstander", "")
+                    if teg and match_results:
+                        hist = [m for m in match_results
+                                if teg.lower() in (m.get("opponent", "") or "").lower()]
+                        if hist:
+                            st.markdown("**📊 Wedstrijdhistorie vs. deze tegenstander:**")
+                            for h in hist[-3:]:  # Laatste 3
+                                res = "?" if h.get("our_score") is None else f"{h['our_score']}–{h.get('opp_score', '?')}"
+                                datum_h = (h.get("match_id", "") or "")[:10]
+                                thuis_uit = h.get("home_away", "")
+                                st.caption(f"• {datum_h} {thuis_uit} → {res}")
 
 
 # ==================================================
@@ -8692,6 +8869,7 @@ def cloud_delete_goal(goal_id: str) -> None:
 
 
 def render_goals_screen() -> None:
+    render_viewer_banner()
     st.markdown("### 🎯 Seizoensdoelen")
 
     doelen = cloud_list_goals()
@@ -8743,51 +8921,55 @@ def render_goals_screen() -> None:
                 unsafe_allow_html=True,
             )
 
-            col_prog, col_vol, col_del = st.columns([2, 1, 1])
-            with col_prog:
-                nieuwe_waarde = st.number_input(
-                    "Huidige stand bijwerken",
-                    min_value=0.0, max_value=float(doel_val) * 2,
-                    value=float(huidig_val), step=1.0,
-                    key=f"goal_prog_{d['id']}",
-                    label_visibility="collapsed",
-                )
-            with col_vol:
-                if st.button("📈 Bijwerken", key=f"goal_upd_{d['id']}", use_container_width=True):
-                    cloud_update_goal(d["id"], {"huidige_waarde": nieuwe_waarde})
-                    st.rerun()
-            with col_del:
-                if st.button("✅ Behaald!", key=f"goal_done_{d['id']}", use_container_width=True, type="primary"):
-                    cloud_update_goal(d["id"], {"voltooid": True, "huidige_waarde": doel_val})
-                    st.success(f"🎉 '{d.get('titel','')}' behaald!")
-                    st.rerun()
+            if not is_viewer():
+                col_prog, col_vol, col_del = st.columns([2, 1, 1])
+                with col_prog:
+                    nieuwe_waarde = st.number_input(
+                        "Huidige stand bijwerken",
+                        min_value=0.0, max_value=float(doel_val) * 2,
+                        value=float(huidig_val), step=1.0,
+                        key=f"goal_prog_{d['id']}",
+                        label_visibility="collapsed",
+                    )
+                with col_vol:
+                    if st.button("📈 Bijwerken", key=f"goal_upd_{d['id']}", use_container_width=True):
+                        cloud_update_goal(d["id"], {"huidige_waarde": nieuwe_waarde})
+                        st.rerun()
+                with col_del:
+                    if st.button("✅ Behaald!", key=f"goal_done_{d['id']}", use_container_width=True, type="primary"):
+                        cloud_update_goal(d["id"], {"voltooid": True, "huidige_waarde": doel_val})
+                        st.success(f"🎉 '{d.get('titel','')}' behaald!")
+                        st.rerun()
 
     # ── TAB: Nieuw doel ──
     with tab_nieuw:
-        with st.form("goal_form"):
-            titel = st.text_input("Titel", placeholder="Bijv. 70% van de wedstrijden winnen", key="gf_titel")
-            beschrijving = st.text_area("Beschrijving (optioneel)", height=70, key="gf_desc",
-                                         placeholder="Waarom is dit doel belangrijk?")
-            c1, c2 = st.columns(2)
-            categorie = c1.selectbox("Categorie", DOEL_CATEGORIEEN, key="gf_cat")
-            eenheid = c2.text_input("Eenheid", placeholder="bijv. %, goals, punten", key="gf_eenheid")
-            c3, c4 = st.columns(2)
-            doel_waarde = c3.number_input("Doelwaarde", min_value=1.0, value=10.0, step=1.0, key="gf_doel")
-            start_waarde = c4.number_input("Beginstand", min_value=0.0, value=0.0, step=1.0, key="gf_start")
-            toevoegen = st.form_submit_button("🎯 Doel toevoegen", type="primary")
+        if not is_viewer():
+            with st.form("goal_form"):
+                titel = st.text_input("Titel", placeholder="Bijv. 70% van de wedstrijden winnen", key="gf_titel")
+                beschrijving = st.text_area("Beschrijving (optioneel)", height=70, key="gf_desc",
+                                             placeholder="Waarom is dit doel belangrijk?")
+                c1, c2 = st.columns(2)
+                categorie = c1.selectbox("Categorie", DOEL_CATEGORIEEN, key="gf_cat")
+                eenheid = c2.text_input("Eenheid", placeholder="bijv. %, goals, punten", key="gf_eenheid")
+                c3, c4 = st.columns(2)
+                doel_waarde = c3.number_input("Doelwaarde", min_value=1.0, value=10.0, step=1.0, key="gf_doel")
+                start_waarde = c4.number_input("Beginstand", min_value=0.0, value=0.0, step=1.0, key="gf_start")
+                toevoegen = st.form_submit_button("🎯 Doel toevoegen", type="primary")
 
-        if toevoegen:
-            if not titel.strip():
-                st.error("Vul een titel in.")
-            else:
-                cloud_save_goal({
-                    "titel": titel.strip(), "beschrijving": beschrijving.strip(),
-                    "categorie": categorie, "eenheid": eenheid.strip(),
-                    "doel_waarde": float(doel_waarde), "huidige_waarde": float(start_waarde),
-                    "voltooid": False,
-                })
-                st.success("Doel toegevoegd!")
-                st.rerun()
+            if toevoegen:
+                if not titel.strip():
+                    st.error("Vul een titel in.")
+                else:
+                    cloud_save_goal({
+                        "titel": titel.strip(), "beschrijving": beschrijving.strip(),
+                        "categorie": categorie, "eenheid": eenheid.strip(),
+                        "doel_waarde": float(doel_waarde), "huidige_waarde": float(start_waarde),
+                        "voltooid": False,
+                    })
+                    st.success("Doel toegevoegd!")
+                    st.rerun()
+        else:
+            st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
     # ── TAB: Behaalde doelen ──
     with tab_voltooid:
@@ -8803,15 +8985,17 @@ def render_goals_screen() -> None:
                 f'</div>',
                 unsafe_allow_html=True,
             )
-            if st.button("↩ Heropen", key=f"goal_reopen_{d['id']}", help="Zet terug naar actief"):
-                cloud_update_goal(d["id"], {"voltooid": False})
-                st.rerun()
+            if not is_viewer():
+                if st.button("↩ Heropen", key=f"goal_reopen_{d['id']}", help="Zet terug naar actief"):
+                    cloud_update_goal(d["id"], {"voltooid": False})
+                    st.rerun()
 
 
 # ==================================================
 # TACTISCH TEKENBORD
 # ==================================================
 def render_tekenbord_screen() -> None:
+    render_viewer_banner()
     st.markdown("### 🖊️ Tactisch tekenbord")
     st.caption("Teken formaties, bewegingen en tactische patronen. Sleep spelers, teken pijlen en lijnen.")
 
@@ -9030,6 +9214,44 @@ redraw();
     components.html(tekenbord_html, height=530, scrolling=False)
     st.caption("💡 Tip: sleep spelers naar de gewenste positie · gele pijlen/lijnen voor bewegingen · undo om terug te gaan")
 
+    # ── Opgeslagen tekeningen ──
+    st.divider()
+    col_teken, col_opslaan = st.columns([3, 1])
+    with col_opslaan:
+        st.subheader("💾 Opslaan")
+        naam_input = st.text_input("Naam tekening", key="teken_naam", placeholder="Bijv. Hoekbal rechts")
+        if not is_viewer():
+            if st.button("Opslaan", type="primary", use_container_width=True, key="teken_save_btn"):
+                if naam_input.strip():
+                    # Sla de canvas-staat op (leeg JSON als placeholder — echte state via JS postMessage)
+                    cloud_save_tekening(naam_input.strip(), "{}")
+                    st.success(f"'{naam_input}' opgeslagen!")
+                    st.rerun()
+                else:
+                    st.warning("Geef een naam op.")
+        else:
+            st.info("👁 Meekijken — opslaan niet mogelijk.")
+
+        st.subheader("📂 Biblioteek")
+        tekeningen = cloud_list_tekeningen()
+        if not tekeningen:
+            st.info("Nog geen tekeningen opgeslagen.")
+        else:
+            for t in tekeningen:
+                tc1, tc2 = st.columns([3, 1])
+                with tc1:
+                    st.markdown(f"**{t.get('naam','?')}**")
+                    import datetime as _dt2
+                    ts = t.get('created_at', 0)
+                    if ts:
+                        d = _dt2.datetime.fromtimestamp(float(ts)).strftime('%d %b %Y')
+                        st.caption(d)
+                with tc2:
+                    if not is_viewer():
+                        if st.button("🗑", key=f"del_teken_{t['id']}"):
+                            cloud_delete_tekening(t["id"])
+                            st.rerun()
+
 
 # ==================================================
 # WEDSTRIJDKALENDER
@@ -9084,6 +9306,59 @@ def cloud_delete_kalender(event_id: str) -> None:
         log_cloud_error("kalender verwijderen", err)
 
 
+# ==================================================
+# TEKENBORD — opslaan/laden tekeningen
+# ==================================================
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_tekeningen(team_id: str) -> list:
+    client = get_supabase_client()
+    if not team_id or client is None:
+        return []
+    try:
+        r = client.table("tekeningen").select("*").eq("team_id", team_id)\
+            .order("created_at", desc=True).limit(20).execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def cloud_list_tekeningen() -> list:
+    tid = _active_team_id()
+    return _fetch_tekeningen(tid or "")
+
+
+def cloud_save_tekening(naam: str, canvas_json: str) -> None:
+    tid = _active_team_id()
+    client = get_supabase_client()
+    if not tid or client is None:
+        return
+    try:
+        data = {
+            "id": str(uuid.uuid4()),
+            "team_id": tid,
+            "naam": naam,
+            "canvas_json": canvas_json,
+            "created_at": __import__("time").time(),
+        }
+        client.table("tekeningen").insert(data).execute()
+        _fetch_tekeningen.clear()
+        mark_cloud_ok()
+    except Exception as err:
+        log_cloud_error("tekening opslaan", err)
+
+
+def cloud_delete_tekening(tekening_id: str) -> None:
+    tid = _active_team_id()
+    client = get_supabase_client()
+    if not tid or client is None:
+        return
+    try:
+        client.table("tekeningen").delete().eq("id", tekening_id).eq("team_id", tid).execute()
+        _fetch_tekeningen.clear()
+    except Exception as err:
+        log_cloud_error("tekening verwijderen", err)
+
+
 def generate_ics(events: list, team_name: str) -> str:
     """Genereer een .ics kalenderbestand van events."""
     import datetime as _dt
@@ -9126,6 +9401,7 @@ def generate_ics(events: list, team_name: str) -> str:
 
 
 def render_kalender_screen() -> None:
+    render_viewer_banner()
     import datetime as _dt
     st.markdown("### 📆 Wedstrijdkalender")
 
@@ -9189,7 +9465,7 @@ def render_kalender_screen() -> None:
                 f'</div>',
                 unsafe_allow_html=True,
             )
-            if item.get("_type") == "event":
+            if item.get("_type") == "event" and not is_viewer():
                 if st.button("🗑️", key=f"del_kal_{item['id']}", help="Verwijder"):
                     cloud_delete_kalender(item["id"])
                     st.rerun()
@@ -9207,31 +9483,34 @@ def render_kalender_screen() -> None:
                     _render_item(item)
 
     with tab_nieuw:
-        with st.form("kalender_form"):
-            titel = st.text_input("Titel", placeholder="Bijv. Competitiewedstrijd vs HC Rotterdam", key="kf_titel")
-            c1, c2 = st.columns(2)
-            ttype = c1.selectbox("Type", ["wedstrijd", "training", "toernooi", "overig"], key="kf_type")
-            datum = c2.date_input("Datum", value=today, key="kf_datum")
-            c3, c4, c5 = st.columns(3)
-            tijd = c3.time_input("Tijd", value=__import__("datetime").time(14, 0), key="kf_tijd")
-            duur = c4.number_input("Duur (min)", min_value=30, max_value=300, value=90, step=15, key="kf_duur")
-            locatie = c5.text_input("Locatie", placeholder="Sportpark De Hoef", key="kf_loc")
-            notities = st.text_area("Notities", height=70, key="kf_notes",
-                                     placeholder="Bijv. uitwedstrijd, warm worden voor 13:30")
-            toevoegen = st.form_submit_button("📅 Toevoegen aan kalender", type="primary")
+        if not is_viewer():
+            with st.form("kalender_form"):
+                titel = st.text_input("Titel", placeholder="Bijv. Competitiewedstrijd vs HC Rotterdam", key="kf_titel")
+                c1, c2 = st.columns(2)
+                ttype = c1.selectbox("Type", ["wedstrijd", "training", "toernooi", "overig"], key="kf_type")
+                datum = c2.date_input("Datum", value=today, key="kf_datum")
+                c3, c4, c5 = st.columns(3)
+                tijd = c3.time_input("Tijd", value=__import__("datetime").time(14, 0), key="kf_tijd")
+                duur = c4.number_input("Duur (min)", min_value=30, max_value=300, value=90, step=15, key="kf_duur")
+                locatie = c5.text_input("Locatie", placeholder="Sportpark De Hoef", key="kf_loc")
+                notities = st.text_area("Notities", height=70, key="kf_notes",
+                                         placeholder="Bijv. uitwedstrijd, warm worden voor 13:30")
+                toevoegen = st.form_submit_button("📅 Toevoegen aan kalender", type="primary")
 
-        if toevoegen:
-            if not titel.strip():
-                st.error("Vul een titel in.")
-            else:
-                cloud_save_kalender({
-                    "titel": titel.strip(), "type": ttype,
-                    "datum": datum.isoformat(), "tijd": tijd.strftime("%H:%M"),
-                    "duur_min": int(duur), "locatie": locatie.strip(),
-                    "notities": notities.strip(),
-                })
-                st.success("Event toegevoegd!")
-                st.rerun()
+            if toevoegen:
+                if not titel.strip():
+                    st.error("Vul een titel in.")
+                else:
+                    cloud_save_kalender({
+                        "titel": titel.strip(), "type": ttype,
+                        "datum": datum.isoformat(), "tijd": tijd.strftime("%H:%M"),
+                        "duur_min": int(duur), "locatie": locatie.strip(),
+                        "notities": notities.strip(),
+                    })
+                    st.success("Event toegevoegd!")
+                    st.rerun()
+        else:
+            st.info("👁 Meekijken — aanpassen niet mogelijk in deze modus.")
 
     with tab_export:
         st.subheader("Exporteren naar telefoon-kalender")
@@ -9292,26 +9571,64 @@ def generate_ai_tips(df, team_name: str, opponent_name: str) -> str | None:
     team_events = df[df["team"] == "own"]["event"].value_counts().to_dict() if "team" in df.columns else {}
     opp_events = df[df["team"] == "opponent"]["event"].value_counts().to_dict() if "team" in df.columns else {}
 
-    samenvatting = (
-        f"Team: {team_name} vs {opponent_name}\n"
-        f"Totaal events: {totaal}\n"
-        f"Events per kwart: {kwart_counts}\n"
-        f"Eigen events: {team_events}\n"
-        f"Tegenstander events: {opp_events}\n"
-    )
+    # Bouw event_summary en quarter_breakdown strings op
+    event_summary_lines = []
+    for evt, cnt in event_counts.items():
+        own_cnt = team_events.get(evt, 0)
+        opp_cnt = opp_events.get(evt, 0)
+        event_summary_lines.append(f"- {evt}: {cnt} totaal ({own_cnt} eigen / {opp_cnt} tegenstander)")
+    event_summary = "\n".join(event_summary_lines) if event_summary_lines else "Geen events beschikbaar."
 
-    prompt = (
-        f"Je bent een ervaren hockey coach assistent. Analyseer deze wedstrijddata en geef 4-5 concrete, "
-        f"bruikbare coaching-inzichten in het Nederlands. Wees specifiek en praktisch. "
-        f"Gebruik bullet points. Focus op: aanvalstactieken, verdedigingspatronen, kwartprestaties "
-        f"en verbeterpunten.\n\nWedstrijddata:\n{samenvatting}"
-    )
+    quarter_breakdown_lines = []
+    for kwart in ["Q1", "Q2", "Q3", "Q4"]:
+        cnt = kwart_counts.get(kwart, 0)
+        if "quarter" in df.columns and "team" in df.columns:
+            df_q = df[df["quarter"] == kwart]
+            own_q = len(df_q[df_q["team"] == "own"])
+            opp_q = len(df_q[df_q["team"] == "opponent"])
+            quarter_breakdown_lines.append(f"- {kwart}: {cnt} events ({own_q} eigen / {opp_q} tegenstander)")
+        else:
+            quarter_breakdown_lines.append(f"- {kwart}: {cnt} events")
+    quarter_breakdown = "\n".join(quarter_breakdown_lines) if quarter_breakdown_lines else "Geen kwartdata beschikbaar."
+
+    prompt = f"""Je bent een professionele veld hockey coach-assistent. Analyseer de volgende wedstrijddata en geef CONCRETE, ACTIONABLE coaching-tips.
+
+**Wedstrijd:** {team_name} vs {opponent_name}
+**Totaal events:** {len(df)}
+
+**Event breakdown:**
+{event_summary}
+
+**Kwart-voor-kwart analyse:**
+{quarter_breakdown}
+
+Geef je analyse in deze VASTE structuur (gebruik markdown headers):
+
+## 🏑 Wedstrijdsamenvatting
+Korte beschrijving van het verloop (2-3 zinnen).
+
+## 💪 Wat ging goed
+3 concrete sterke punten met cijfers uit de data.
+
+## ⚠️ Verbeterpunten
+3 concrete verbeterpunten met specifieke aanbevelingen.
+
+## 🎯 Tactische focus voor de volgende training
+2-3 specifieke oefeningen of trainingsthema's die direct aansluiten op de data.
+
+## 📊 Kwart-analyse
+Per kwart: wat viel op, wat was het momentum?
+
+## 💬 Boodschap voor de spelersgroep
+Een korte, motiverende maar eerlijke boodschap van max 3 zinnen die je na afloop zou geven.
+
+Wees SPECIFIEK — gebruik altijd cijfers uit de data. Vermijd vage uitspraken."""
 
     try:
         import anthropic as _ant
         msg = client.messages.create(
             model="claude-opus-4-5",
-            max_tokens=600,
+            max_tokens=1500,
             messages=[{"role": "user", "content": prompt}],
         )
         return msg.content[0].text
@@ -9358,10 +9675,21 @@ def render_ai_tips_screen() -> None:
         return f"{unscope_match_id(mid)} — vs {meta_map.get(mid, '?')}"
 
     opts = {_label(m): m for m in match_ids}
-    gekozen = st.selectbox("Kies wedstrijd voor analyse", list(opts.keys()), key="ai_match_sel")
+    col_sel, col_clear = st.columns([4, 1])
+    with col_sel:
+        gekozen = st.selectbox("Kies wedstrijd voor analyse", list(opts.keys()), key="ai_match_sel")
+    with col_clear:
+        st.write("")
+        if st.button("🗑 Reset", key="ai_clear_cache", help="Wis gecachte analyse"):
+            st.session_state.pop("ai_tips_cache", None)
+            st.session_state.pop("ai_tips_cache_key", None)
+            st.rerun()
     mid = opts[gekozen]
     team_name = st.session_state.get("active_team_name", "Ons team")
     opponent_name = meta_map.get(mid, "Tegenstander")
+
+    tid = _active_team_id() or ""
+    cache_key = f"{tid}::{mid}"
 
     if st.button("🤖 Genereer AI coaching tips", type="primary", use_container_width=True, key="ai_gen_btn"):
         with st.spinner("Claude analyseert de wedstrijd..."):
@@ -9376,11 +9704,12 @@ def render_ai_tips_screen() -> None:
                 if tips:
                     st.session_state["ai_tips_cache"] = tips
                     st.session_state["ai_tips_match"] = mid
+                    st.session_state["ai_tips_cache_key"] = cache_key
                 else:
                     st.error("Kon geen tips genereren. Controleer je API key.")
 
     # Toon gecachte tips
-    if st.session_state.get("ai_tips_cache") and st.session_state.get("ai_tips_match") == mid:
+    if st.session_state.get("ai_tips_cache") and st.session_state.get("ai_tips_cache_key") == cache_key:
         st.divider()
         st.markdown(
             f'<div style="background:#0f1624;border:1px solid #3b82f644;border-radius:14px;padding:20px 24px;">'
@@ -9397,122 +9726,174 @@ def render_ai_tips_screen() -> None:
 # STATISTIEKEN DASHBOARD — geaggregeerde team-statistieken
 # ==================================================
 def render_stats_screen() -> None:
-    """Statistieken dashboard: grafieken over wedstrijddata, doelen en aanwezigheid."""
+    """Statistieken dashboard — spelersstatistieken, aanwezigheid en teamtrends."""
     team_name = st.session_state.get("team_name") or st.session_state.get("active_team_name") or "je team"
-    st.markdown(f"### 📊 Statistieken — {team_name}")
-    st.caption("Overzicht van je teamstatistieken over het hele seizoen.")
+    st.markdown(f"### 📊 Team Statistieken — {team_name}")
+    st.caption("Spelers- en aanwezigheidsstatistieken. Voor wedstrijdresultaten → Seizoensoverzicht.")
 
     hc1, hc2 = st.columns([4, 1])
     with hc2:
         if st.button("🔄 Ververs", use_container_width=True, key="stats_refresh"):
             st.rerun()
 
-    with st.spinner("Data laden…"):
-        matches = _load_all_team_matches(include_unscoped=True)
-
-    own_hint = st.session_state.get("team_name", "")
-    summary = build_season_summary(matches, own_hint)
-    per_match = summary.get("per_match", [])
-
-    if not per_match:
-        st.info("Nog geen wedstrijddata gevonden. Speel eerst een wedstrijd en sync de events naar de cloud.")
+    roster = _active_team_roster()
+    if not roster:
+        st.info("Voeg eerst spelers toe via de Wisselschema-tool.")
         return
 
-    # ---- KPI-rij ----
-    k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Gespeeld", summary["played"])
-    k2.metric("Gewonnen", summary["wins"])
-    k3.metric("Gelijk", summary["draws"])
-    k4.metric("Verloren", summary["losses"])
-    delta_color = "normal"
-    k5.metric("Winpercentage", f"{summary['win_pct']}%")
-
-    st.divider()
-
-    tab_match, tab_goals, tab_attack, tab_form = st.tabs(
-        ["📅 Per wedstrijd", "⚽ Doelen", "🎯 Aanval", "📈 Vorm"]
+    tab_spelers, tab_aanwezig, tab_linies, tab_blessures = st.tabs(
+        ["👤 Spelersoverzicht", "✅ Aanwezigheid", "🏑 Linies", "🩹 Blessures"]
     )
 
-    import datetime as _dt
+    with tab_spelers:
+        st.subheader("Spelersoverzicht")
 
-    # Zorg dat per_match gesorteerd is op datum
-    pm_sorted = sorted(per_match, key=lambda x: x.get("date", ""))
-
-    with tab_match:
-        st.subheader("Doelen per wedstrijd")
-        if pm_sorted:
-            labels = [m.get("pretty_id") or m.get("match_id", f"W{i+1}") for i, m in enumerate(pm_sorted)]
-            goals_for = [m["goals_for"] for m in pm_sorted]
-            goals_against = [m["goals_against"] for m in pm_sorted]
-            df_pm = pd.DataFrame({
-                "Wedstrijd": labels,
-                "Doelpunten voor": goals_for,
-                "Doelpunten tegen": goals_against,
-            }).set_index("Wedstrijd")
-            st.bar_chart(df_pm)
-        # Tabel
+        # Bouw spelersdata op
         rows = []
-        for m in pm_sorted:
-            res_emoji = {"W": "✅ W", "G": "🟡 G", "V": "❌ V"}.get(m["result"], m["result"])
+        all_events = build_df()
+        blessures = cloud_list_injuries(active_only=True)
+        blessure_ids = {b["player_id"] for b in blessures}
+
+        for p in roster:
+            pid = p["id"]
+            goals = 0
+            if not all_events.empty and "player_id" in all_events.columns:
+                goals = int(((all_events["event"] == "Goal") & (all_events["player_id"] == pid)).sum())
+
+            notes = cloud_get_player_notes(pid)
+            rated = [n for n in notes if n.get("rating")]
+            avg_r = round(sum(n["rating"] for n in rated) / len(rated), 1) if rated else None
+
+            line_label = {"K": "Keeper", "V": "Verdediger", "M": "Middenvelder", "A": "Aanvaller"}.get(
+                p.get("line", "M"), "—")
+
             rows.append({
-                "Wedstrijd": m.get("pretty_id") or m["match_id"],
-                "Tegenstander": m.get("opponent", "—"),
-                "Uitslag": f"{m['goals_for']}–{m['goals_against']}",
-                "Resultaat": res_emoji,
+                "Naam": p["name"],
+                "Linie": line_label,
+                "Status": "🩹 Geblesseerd" if pid in blessure_ids else "✅ Fit",
+                "Goals": goals,
+                "Notities": len(notes),
+                "Gem. beoordeling": avg_r if avg_r else "—",
+                "Prioriteit": {"high": "⭐ Meer", "low": "↓ Minder", "normal": "Normaal"}.get(
+                    p.get("priority", "normal"), "Normaal"),
             })
-        if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    with tab_goals:
-        st.subheader("Doelsaldo seizoen")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Goals voor", summary["goals_for"])
-        c2.metric("Goals tegen", summary["goals_against"])
-        diff = summary["goal_diff"]
-        c3.metric("Saldo", f"{'+' if diff > 0 else ''}{diff}")
+        df_spelers = pd.DataFrame(rows)
+        st.dataframe(df_spelers, use_container_width=True, hide_index=True)
 
-        if pm_sorted:
-            st.subheader("Cumulatief doelsaldo")
-            cumulative = []
-            running = 0
-            for m in pm_sorted:
-                running += m["goals_for"] - m["goals_against"]
-                cumulative.append(running)
-            df_cum = pd.DataFrame({
-                "Wedstrijd": [m.get("pretty_id") or f"W{i+1}" for i, m in enumerate(pm_sorted)],
-                "Cumulatief saldo": cumulative,
-            }).set_index("Wedstrijd")
-            st.line_chart(df_cum)
+        # Top scorers
+        scored = [(r["Naam"], r["Goals"]) for r in rows if r["Goals"] > 0]
+        if scored:
+            scored.sort(key=lambda x: x[1], reverse=True)
+            st.subheader("⚽ Topscorers (huidige sessie)")
+            df_scorers = pd.DataFrame(scored[:10], columns=["Speler", "Goals"]).set_index("Speler")
+            st.bar_chart(df_scorers)
 
-    with tab_attack:
-        st.subheader("Aanvalsstatistieken per wedstrijd")
-        c1, c2 = st.columns(2)
-        c1.metric("Totaal cirkelentries", summary["circle_entries_for"])
-        c2.metric("Totaal schoten", summary["shots_for"])
-        if pm_sorted:
-            df_att = pd.DataFrame({
-                "Wedstrijd": [m.get("pretty_id") or f"W{i+1}" for i, m in enumerate(pm_sorted)],
-                "Cirkelentries": [m["circle_entries"] for m in pm_sorted],
-                "Schoten": [m["shots"] for m in pm_sorted],
-            }).set_index("Wedstrijd")
-            st.bar_chart(df_att)
+    with tab_aanwezig:
+        st.subheader("Aanwezigheidsoverzicht")
+        trainingen = cloud_list_trainings(limit=20)
+        if not trainingen:
+            st.info("Nog geen trainingen met aanwezigheid geregistreerd.")
+        else:
+            # Bouw aanwezigheidsmatrix
+            import datetime as _dt
 
-    with tab_form:
-        st.subheader("Vormcurve — punten per wedstrijd")
-        st.caption("3 punten voor winst, 1 voor gelijk, 0 voor verlies")
-        if pm_sorted:
-            pts_map = {"W": 3, "G": 1, "V": 0}
-            pts_per_match = [pts_map.get(m["result"], 0) for m in pm_sorted]
-            df_form = pd.DataFrame({
-                "Wedstrijd": [m.get("pretty_id") or f"W{i+1}" for i, m in enumerate(pm_sorted)],
-                "Punten": pts_per_match,
-            }).set_index("Wedstrijd")
-            st.bar_chart(df_form)
+            # Verzamel aanwezigheid per training
+            rows_aanwezig = []
+            for t in trainingen[:10]:  # Max 10 recente trainingen
+                datum = t.get("datum", "")[:10]
+                thema = t.get("thema", "Training")
+                count_aanwezig = len(t.get("aanwezig", [])) if isinstance(t.get("aanwezig"), list) else 0
+                pct = round(count_aanwezig / len(roster) * 100) if roster else 0
+                rows_aanwezig.append({
+                    "Datum": datum,
+                    "Thema": thema,
+                    "Aanwezig": count_aanwezig,
+                    "Afwezig": len(roster) - count_aanwezig,
+                    "Aanwezigheid %": pct,
+                })
 
-            # Gemiddelde punten laatste 3 wedstrijden
-            if len(pts_per_match) >= 3:
-                last3 = sum(pts_per_match[-3:]) / 3
-                st.metric("Gemiddeld punten (laatste 3 wedstrijden)", f"{last3:.1f} / 3")
+            df_aa = pd.DataFrame(rows_aanwezig)
+            st.dataframe(df_aa, use_container_width=True, hide_index=True)
+
+            if len(rows_aanwezig) > 1:
+                df_trend = pd.DataFrame({
+                    "Training": [r["Datum"] for r in rows_aanwezig],
+                    "Aanwezigheid %": [r["Aanwezigheid %"] for r in rows_aanwezig],
+                }).set_index("Training")
+                st.line_chart(df_trend)
+
+    with tab_linies:
+        st.subheader("Verdeling per linie")
+        linie_counts = {}
+        for p in roster:
+            l = {"K": "Keeper", "V": "Verdediger", "M": "Middenvelder", "A": "Aanvaller"}.get(p.get("line", "M"), "?")
+            linie_counts[l] = linie_counts.get(l, 0) + 1
+
+        c1, c2, c3, c4 = st.columns(4)
+        metrics = [c1, c2, c3, c4]
+        for i, (l, count) in enumerate(linie_counts.items()):
+            if i < 4:
+                metrics[i].metric(l, count)
+
+        df_linies = pd.DataFrame(list(linie_counts.items()), columns=["Linie", "Aantal"]).set_index("Linie")
+        st.bar_chart(df_linies)
+
+        # Fit vs geblesseerd per linie
+        blessures_actief = cloud_list_injuries(active_only=True)
+        blessure_ids_l = {b["player_id"] for b in blessures_actief}
+
+        fit_per_linie = {}
+        geblesseerd_per_linie = {}
+        for p in roster:
+            l = {"K": "Keeper", "V": "Verdediger", "M": "Middenvelder", "A": "Aanvaller"}.get(p.get("line", "M"), "?")
+            if p["id"] in blessure_ids_l:
+                geblesseerd_per_linie[l] = geblesseerd_per_linie.get(l, 0) + 1
+            else:
+                fit_per_linie[l] = fit_per_linie.get(l, 0) + 1
+
+        linies = list(set(list(fit_per_linie.keys()) + list(geblesseerd_per_linie.keys())))
+        if linies:
+            df_fit = pd.DataFrame({
+                "Linie": linies,
+                "Fit": [fit_per_linie.get(l, 0) for l in linies],
+                "Geblesseerd": [geblesseerd_per_linie.get(l, 0) for l in linies],
+            }).set_index("Linie")
+            st.bar_chart(df_fit)
+
+    with tab_blessures:
+        st.subheader("Blessure overzicht")
+        alle_blessures = cloud_list_injuries(active_only=False)
+        if not alle_blessures:
+            st.info("Nog geen blessures geregistreerd.")
+        else:
+            ernst_counts = {}
+            for b in alle_blessures:
+                e = b.get("ernst", "Onbekend")
+                ernst_counts[e] = ernst_counts.get(e, 0) + 1
+
+            c1, c2 = st.columns(2)
+            c1.metric("Totaal blessures", len(alle_blessures))
+            actief = sum(1 for b in alle_blessures if b.get("actief", True))
+            c2.metric("Nu actief", actief)
+
+            st.subheader("Per ernst")
+            df_ernst = pd.DataFrame(list(ernst_counts.items()), columns=["Ernst", "Aantal"]).set_index("Ernst")
+            st.bar_chart(df_ernst)
+
+            # Meest blessure-gevoelige spelers
+            blessure_per_speler = {}
+            pnames = {p["id"]: p["name"] for p in roster}
+            for b in alle_blessures:
+                pid_b = b.get("player_id", "")
+                naam = pnames.get(pid_b, "Onbekend")
+                blessure_per_speler[naam] = blessure_per_speler.get(naam, 0) + 1
+
+            if blessure_per_speler:
+                st.subheader("Blessures per speler")
+                df_bp = pd.DataFrame(list(blessure_per_speler.items()),
+                                     columns=["Speler", "Blessures"]).set_index("Speler")
+                st.bar_chart(df_bp)
 
 
 # ==================================================
