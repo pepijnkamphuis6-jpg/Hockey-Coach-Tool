@@ -2176,17 +2176,24 @@ def switch_to_match(match_id: str) -> None:
     refresh_derived_state()
 
 
-def load_events_from_cloud(match_id: str) -> list:
+@st.cache_data(ttl=5, show_spinner=False)
+def _fetch_events_from_cloud(match_id: str) -> list:
+    """Gecachte eventlijst — TTL 5s zodat live wedstrijd snel ververst maar niet elke rerun."""
     client = get_supabase_client()
     if client is None:
         return []
     try:
         response = client.table("match_events").select("*").eq("match_id", match_id).order("created_at").execute()
-        mark_cloud_ok()
         return [normalize_event_row(r) for r in (response.data or [])]
-    except Exception as err:
-        log_cloud_error("events laden uit cloud", err)
+    except Exception:
         return []
+
+
+def load_events_from_cloud(match_id: str) -> list:
+    result = _fetch_events_from_cloud(match_id)
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def save_event_to_cloud(event_row: dict) -> None:
@@ -2196,6 +2203,7 @@ def save_event_to_cloud(event_row: dict) -> None:
     # Fouten worden bewust doorgegeven zodat de aanroeper ze kan loggen.
     safe_row = {k: v for k, v in event_row.items() if v is not None}
     client.table("match_events").insert(safe_row).execute()
+    _fetch_events_from_cloud.clear()
 
 
 def delete_last_event_cloud() -> None:
@@ -2203,6 +2211,7 @@ def delete_last_event_cloud() -> None:
     if client is None or not st.session_state.events:
         return
     client.table("match_events").delete().eq("id", st.session_state.events[-1]["id"]).execute()
+    _fetch_events_from_cloud.clear()
 
 
 def update_event_player_cloud(event_id: str, player_id: str | None) -> None:
@@ -2275,17 +2284,16 @@ def _active_team_roster() -> list:
     return cloud_roster
 
 
-def cloud_load_team_players() -> list:
-    """Haal spelerslijst van actieve team op."""
-    tid = _active_team_id()
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_team_players(team_id: str) -> list:
+    """Gecachte spelerslijst per team."""
     client = get_supabase_client()
-    if not tid or client is None:
+    if not team_id or client is None:
         return []
     try:
         response = client.table("team_players").select(
             "id,name,line,can_keep,priority"
-        ).eq("team_id", tid).order("name").execute()
-        mark_cloud_ok()
+        ).eq("team_id", team_id).order("name").execute()
         rows = response.data or []
         return [
             {
@@ -2297,9 +2305,17 @@ def cloud_load_team_players() -> list:
             }
             for r in rows
         ]
-    except Exception as err:
-        log_cloud_error("spelers laden", err)
+    except Exception:
         return []
+
+
+def cloud_load_team_players() -> list:
+    """Haal spelerslijst van actieve team op."""
+    tid = _active_team_id()
+    result = _fetch_team_players(tid or "")
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def cloud_upsert_player(player: dict) -> None:
@@ -2318,6 +2334,7 @@ def cloud_upsert_player(player: dict) -> None:
             "priority": player.get("priority", "normal"),
         }
         client.table("team_players").upsert(row).execute()
+        _fetch_team_players.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("speler opslaan", err)
@@ -2330,6 +2347,7 @@ def cloud_delete_player(player_id: str) -> None:
         return
     try:
         client.table("team_players").delete().eq("id", player_id).eq("team_id", tid).execute()
+        _fetch_team_players.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("speler verwijderen", err)
@@ -2344,6 +2362,7 @@ def cloud_clear_players() -> None:
     try:
         client.table("team_players").delete().eq("team_id", tid).execute()
         client.table("team_attendance").delete().eq("team_id", tid).execute()
+        _fetch_team_players.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("team leegmaken", err)
@@ -6817,30 +6836,37 @@ def cloud_add_player_note(player_id: str, note_date: str, category: str,
             "rating": rating,
             "note": note.strip(),
         }).execute()
+        _fetch_player_notes.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("notitie opslaan", err)
 
 
-def cloud_get_player_notes(player_id: str) -> list:
-    tid = _active_team_id()
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_player_notes(team_id: str, player_id: str) -> list:
     client = get_supabase_client()
-    if not tid or client is None:
+    if not team_id or not player_id or client is None:
         return []
     try:
         response = (
             client.table("player_notes")
             .select("*")
-            .eq("team_id", tid)
+            .eq("team_id", team_id)
             .eq("player_id", player_id)
             .order("note_date", desc=True)
             .execute()
         )
-        mark_cloud_ok()
         return response.data or []
-    except Exception as err:
-        log_cloud_error("notities laden", err)
+    except Exception:
         return []
+
+
+def cloud_get_player_notes(player_id: str) -> list:
+    tid = _active_team_id()
+    result = _fetch_player_notes(tid or "", player_id)
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def cloud_delete_player_note(note_id: str) -> None:
@@ -6850,6 +6876,7 @@ def cloud_delete_player_note(note_id: str) -> None:
         return
     try:
         client.table("player_notes").delete().eq("id", note_id).eq("team_id", tid).execute()
+        _fetch_player_notes.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("notitie verwijderen", err)
@@ -6869,9 +6896,8 @@ def render_player_profile_screen() -> None:
     player = player_map[selected_name]
     pid = player["id"]
 
-    # --- Stats uit match events ---
-    all_events = build_df()
-    own_name = st.session_state.get("team_name", "")
+    # --- Stats uit match events (gebruik al gebouwde df uit session state, geen extra query) ---
+    all_events = build_df()  # build_df gebruikt session_state.events — geen Supabase call
     goals_scored = 0
     if not all_events.empty:
         goals_scored = int(
@@ -8233,7 +8259,9 @@ if not st.session_state.get("active_tool"):
 if st.session_state.active_tool == "MATCH_ANALYSIS":
     render_setup_bar()
 render_navigation()
-auto_sync_cloud()
+# Auto-sync alleen actief in wedstrijd analyse — niet op andere pagina's pollen
+if st.session_state.active_tool == "MATCH_ANALYSIS":
+    auto_sync_cloud()
 
 # Vangnet: als team-namen leeg zijn geraakt, terugzetten op standaard
 # zodat KPI's en score werken met de namen waarmee de events zijn opgeslagen.
@@ -8242,11 +8270,14 @@ if not (st.session_state.team_name or "").strip():
 if not (st.session_state.opponent_name or "").strip():
     st.session_state.opponent_name = "Tegenstander"
 
-df = build_df()
-# Altijd score + afgeleide data herberekenen na elke rerun,
-# anders blijven score/KPI's op 0 hangen na een page-reload of na cloud-sync.
-if not df.empty:
-    refresh_derived_state()
+# build_df en refresh_derived_state zijn zwaar — alleen uitvoeren bij tools die events nodig hebben
+_needs_events = st.session_state.active_tool in ("MATCH_ANALYSIS", "VIDEO_ANALYSIS")
+if _needs_events:
+    df = build_df()
+    if not df.empty:
+        refresh_derived_state()
+else:
+    df = pd.DataFrame()
 
 # Cloud-status: alleen tonen bij echte problemen, niet als groene balk op elke pagina
 if not cloud_enabled():
