@@ -79,6 +79,7 @@ def _save_local_teams(teams: list) -> None:
         log_cloud_error("teams lokaal opslaan", err)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
 def list_teams() -> list:
     """Haal alle teams op (uit Supabase, fallback lokaal)."""
     client = get_supabase_client()
@@ -1822,6 +1823,7 @@ def export_video_analysis_excel(clips_df: pd.DataFrame) -> bytes:
 # ==================================================
 # SUPABASE
 # ==================================================
+@st.cache_resource(show_spinner=False)
 def get_supabase_client():
     if create_client is None:
         return None
@@ -2075,8 +2077,9 @@ def unscope_match_id(match_id: str) -> str:
     return match_id
 
 
-def list_match_ids_from_cloud(limit: int = 50) -> list:
-    """Haal unieke match_id's op uit de cloud, alleen voor het huidige team."""
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_match_ids(prefix: str, limit: int) -> list:
+    """Gecachte query voor unieke match_id's."""
     client = get_supabase_client()
     if client is None:
         return []
@@ -2084,7 +2087,6 @@ def list_match_ids_from_cloud(limit: int = 50) -> list:
         query = client.table("match_events").select("match_id,created_at").order(
             "created_at", desc=True
         ).limit(500)
-        prefix = _team_match_prefix()
         if prefix:
             query = query.ilike("match_id", f"{prefix}%")
         response = query.execute()
@@ -2098,11 +2100,18 @@ def list_match_ids_from_cloud(limit: int = 50) -> list:
                 seen_set.add(mid)
             if len(seen) >= limit:
                 break
-        mark_cloud_ok()
         return seen
-    except Exception as err:
-        log_cloud_error("wedstrijdenlijst ophalen", err)
+    except Exception:
         return []
+
+
+def list_match_ids_from_cloud(limit: int = 50) -> list:
+    """Haal unieke match_id's op uit de cloud, alleen voor het huidige team."""
+    prefix = _team_match_prefix()
+    result = _fetch_match_ids(prefix or "", limit)
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def switch_to_match(match_id: str) -> None:
@@ -2244,6 +2253,7 @@ def _active_team_id() -> str | None:
     return st.session_state.get("active_team_id")
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def _active_team_roster() -> list:
     """Geef het roster van het actieve team terug, bv. voor scorer-picker.
 
@@ -2972,14 +2982,15 @@ def inject_custom_css() -> None:
             background: {CARD_BG};
             border: 1px solid {CARD_BORDER};
             border-radius: 16px;
-            padding: 22px 22px 16px 22px;
-            min-height: 210px;
-            transition: all 0.22s ease;
+            padding: 20px 20px 14px 20px;
+            min-height: 200px;
+            transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             flex-direction: column;
             gap: 6px;
             position: relative;
             overflow: hidden;
+            cursor: pointer;
         }}
         .tool-card::before {{
             content: '';
@@ -2990,31 +3001,53 @@ def inject_custom_css() -> None:
             opacity: 0;
             transition: opacity 0.22s ease;
         }}
+        .tool-card::after {{
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(ellipse at top left, rgba(59,130,246,0.06) 0%, transparent 60%);
+            opacity: 0;
+            transition: opacity 0.22s ease;
+        }}
         .tool-card:hover {{
-            border-color: rgba(59,130,246,0.45);
+            border-color: rgba(59,130,246,0.5);
             background: {CARD_BG_ELEVATED};
-            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
-            transform: translateY(-3px);
+            box-shadow: 0 16px 48px rgba(0,0,0,0.4), 0 0 0 1px rgba(59,130,246,0.1);
+            transform: translateY(-4px);
         }}
         .tool-card:hover::before {{ opacity: 1; }}
+        .tool-card:hover::after {{ opacity: 1; }}
         .tool-card-icon-wrap {{
-            width: 44px; height: 44px; border-radius: 12px;
-            background: linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(59,130,246,0.05) 100%);
-            border: 1px solid rgba(59,130,246,0.2);
+            width: 48px; height: 48px; border-radius: 13px;
+            background: linear-gradient(135deg, rgba(59,130,246,0.18) 0%, rgba(59,130,246,0.06) 100%);
+            border: 1px solid rgba(59,130,246,0.22);
             display: flex; align-items: center; justify-content: center;
-            font-size: 22px; margin-bottom: 6px;
+            font-size: 24px; margin-bottom: 8px;
+            box-shadow: 0 2px 8px rgba(59,130,246,0.15);
+            transition: box-shadow 0.22s ease;
+        }}
+        .tool-card:hover .tool-card-icon-wrap {{
+            box-shadow: 0 4px 16px rgba(59,130,246,0.3);
         }}
         .tool-card-title {{
-            font-size: 16px; font-weight: 700; color: {TEXT_MAIN};
+            font-size: 15px; font-weight: 700; color: {TEXT_MAIN};
             letter-spacing: -0.02em; line-height: 1.2;
         }}
         .tool-card-desc {{
-            color: {TEXT_SUB}; font-size: 13px; line-height: 1.55; flex: 1;
+            color: {TEXT_SUB}; font-size: 12.5px; line-height: 1.55; flex: 1;
         }}
         .tool-card-tabs {{
-            color: {TEXT_MUTED}; font-size: 10.5px; font-weight: 600;
+            color: {TEXT_MUTED}; font-size: 10px; font-weight: 600;
             letter-spacing: 0.05em; text-transform: uppercase;
             padding-top: 10px; border-top: 1px solid {CARD_BORDER};
+        }}
+        .tool-card-new {{
+            position: absolute; top: 12px; right: 12px;
+            background: linear-gradient(135deg, rgba(16,185,129,0.2), rgba(16,185,129,0.08));
+            border: 1px solid rgba(16,185,129,0.3);
+            color: #34d399; font-size: 9px; font-weight: 700;
+            letter-spacing: 0.08em; text-transform: uppercase;
+            padding: 2px 7px; border-radius: 6px;
         }}
 
         /* ── Mini event-feed ── */
@@ -3044,12 +3077,21 @@ def inject_custom_css() -> None:
 
         /* ── Hero navbar ── */
         .hero {{
-            background: linear-gradient(135deg, {CARD_BG} 0%, #0d1830 100%);
+            background: linear-gradient(135deg, {CARD_BG} 0%, #0b1528 100%);
             border: 1px solid {CARD_BORDER};
             border-radius: 16px;
             padding: 14px 24px;
-            margin-bottom: 16px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+            margin-bottom: 8px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(59,130,246,0.08);
+            position: relative;
+            overflow: hidden;
+        }}
+        .hero::after {{
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(59,130,246,0.5), transparent);
         }}
         .hero-top {{
             display: flex; justify-content: space-between;
@@ -3167,6 +3209,23 @@ def inject_custom_css() -> None:
             margin-bottom: 32px; line-height: 1.55;
         }}
 
+        /* ── Back-to-home knop ── */
+        [data-testid="stButton"] button[kind="secondary"][data-testid*="btn_back_home_hero"] {{
+            background: transparent !important;
+            border: 1px solid {CARD_BORDER_SOFT} !important;
+            color: {TEXT_MUTED} !important;
+            font-size: 12px !important;
+            min-height: 32px !important;
+            padding: 4px 12px !important;
+            border-radius: 8px !important;
+            margin-bottom: 6px;
+        }}
+        [data-testid="stButton"] button[kind="secondary"][data-testid*="btn_back_home_hero"]:hover {{
+            border-color: {ACCENT} !important;
+            color: {ACCENT_SOFT} !important;
+            background: rgba(59,130,246,0.06) !important;
+        }}
+
         /* ── Verberg Streamlit-menu & footer ── */
         #MainMenu, footer, [data-testid="stToolbar"] {{ visibility: hidden; }}
         [data-testid="stDecoration"] {{ display: none; }}
@@ -3278,6 +3337,15 @@ def render_hero_header() -> None:
         f'</div>'
     )
     st.markdown(html, unsafe_allow_html=True)
+
+    # ── Terug-naar-home knop ──
+    if active_tool:
+        col_back, _ = st.columns([1, 7])
+        with col_back:
+            if st.button("← Home", key="btn_back_home_hero", use_container_width=True):
+                st.session_state.active_tool = None
+                st.session_state.active_screen = None
+                st.rerun()
 
 
 def render_match_scorebar() -> None:
@@ -6940,24 +7008,30 @@ def cloud_get_match_result(match_id: str) -> dict | None:
         return None
 
 
-def cloud_list_match_results() -> list:
-    tid = _active_team_id()
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_match_results(team_id: str) -> list:
     client = get_supabase_client()
-    if not tid or client is None:
+    if not team_id or client is None:
         return []
     try:
         response = (
             client.table("match_results")
             .select("*")
-            .eq("team_id", tid)
+            .eq("team_id", team_id)
             .order("created_at", desc=True)
             .execute()
         )
-        mark_cloud_ok()
         return response.data or []
-    except Exception as err:
-        log_cloud_error("wedstrijdresultaten laden", err)
+    except Exception:
         return []
+
+
+def cloud_list_match_results() -> list:
+    tid = _active_team_id()
+    result = _fetch_match_results(tid or "")
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def render_match_management_screen() -> None:
@@ -7310,6 +7384,7 @@ def cloud_save_training(data: dict) -> str | None:
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
         client.table("training_sessions").upsert(data, on_conflict="id").execute()
+        _fetch_trainings.clear()
         mark_cloud_ok()
         return data["id"]
     except Exception as err:
@@ -7317,19 +7392,25 @@ def cloud_save_training(data: dict) -> str | None:
         return None
 
 
-def cloud_list_trainings(limit: int = 30) -> list:
-    tid = _active_team_id()
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_trainings(team_id: str, limit: int) -> list:
     client = get_supabase_client()
-    if not tid or not client:
+    if not team_id or not client:
         return []
     try:
-        r = client.table("training_sessions").select("*").eq("team_id", tid)\
+        r = client.table("training_sessions").select("*").eq("team_id", team_id)\
             .order("datum", desc=True).limit(limit).execute()
-        mark_cloud_ok()
         return r.data or []
-    except Exception as err:
-        log_cloud_error("trainingen laden", err)
+    except Exception:
         return []
+
+
+def cloud_list_trainings(limit: int = 30) -> list:
+    tid = _active_team_id()
+    result = _fetch_trainings(tid or "", limit)
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def cloud_delete_training(training_id: str) -> None:
@@ -7339,6 +7420,7 @@ def cloud_delete_training(training_id: str) -> None:
         return
     try:
         client.table("training_sessions").delete().eq("id", training_id).eq("team_id", tid).execute()
+        _fetch_trainings.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("training verwijderen", err)
@@ -7354,24 +7436,31 @@ def cloud_save_exercise(data: dict) -> None:
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
         client.table("training_exercises").upsert(data, on_conflict="id").execute()
+        _fetch_exercises.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("oefening opslaan", err)
 
 
-def cloud_list_exercises() -> list:
-    tid = _active_team_id()
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_exercises(team_id: str) -> list:
     client = get_supabase_client()
-    if not tid or not client:
+    if not team_id or not client:
         return []
     try:
-        r = client.table("training_exercises").select("*").eq("team_id", tid)\
+        r = client.table("training_exercises").select("*").eq("team_id", team_id)\
             .order("naam").execute()
-        mark_cloud_ok()
         return r.data or []
-    except Exception as err:
-        log_cloud_error("oefeningen laden", err)
+    except Exception:
         return []
+
+
+def cloud_list_exercises() -> list:
+    tid = _active_team_id()
+    result = _fetch_exercises(tid or "")
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def render_training_screen() -> None:
@@ -7566,26 +7655,33 @@ def cloud_add_injury(player_id: str, player_name: str, data: dict) -> None:
         data.update({"id": str(uuid.uuid4()), "team_id": tid,
                      "player_id": player_id, "player_name": player_name})
         client.table("player_injuries").insert(data).execute()
+        _fetch_injuries.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("blessure opslaan", err)
 
 
-def cloud_list_injuries(active_only: bool = False) -> list:
-    tid = _active_team_id()
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_injuries(team_id: str, active_only: bool) -> list:
     client = get_supabase_client()
-    if not tid or not client:
+    if not team_id or not client:
         return []
     try:
-        q = client.table("player_injuries").select("*").eq("team_id", tid)
+        q = client.table("player_injuries").select("*").eq("team_id", team_id)
         if active_only:
             q = q.is_("datum_herstel", "null")
         r = q.order("datum_start", desc=True).execute()
-        mark_cloud_ok()
         return r.data or []
-    except Exception as err:
-        log_cloud_error("blessures laden", err)
+    except Exception:
         return []
+
+
+def cloud_list_injuries(active_only: bool = False) -> list:
+    tid = _active_team_id()
+    result = _fetch_injuries(tid or "", active_only)
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def cloud_resolve_injury(injury_id: str) -> None:
@@ -7598,6 +7694,7 @@ def cloud_resolve_injury(injury_id: str) -> None:
         client.table("player_injuries").update({
             "datum_herstel": _dt.date.today().isoformat()
         }).eq("id", injury_id).eq("team_id", tid).execute()
+        _fetch_injuries.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("blessure oplossen", err)
@@ -7726,24 +7823,31 @@ def cloud_save_scouting(data: dict) -> None:
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
         client.table("scouting_reports").upsert(data, on_conflict="id").execute()
+        _fetch_scouting.clear()
         mark_cloud_ok()
     except Exception as err:
         log_cloud_error("scouting opslaan", err)
 
 
-def cloud_list_scouting() -> list:
-    tid = _active_team_id()
+@st.cache_data(ttl=60, show_spinner=False)
+def _fetch_scouting(team_id: str) -> list:
     client = get_supabase_client()
-    if not tid or not client:
+    if not team_id or not client:
         return []
     try:
-        r = client.table("scouting_reports").select("*").eq("team_id", tid)\
+        r = client.table("scouting_reports").select("*").eq("team_id", team_id)\
             .order("created_at", desc=True).execute()
-        mark_cloud_ok()
         return r.data or []
-    except Exception as err:
-        log_cloud_error("scouting laden", err)
+    except Exception:
         return []
+
+
+def cloud_list_scouting() -> list:
+    tid = _active_team_id()
+    result = _fetch_scouting(tid or "")
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
 
 
 def render_scouting_screen() -> None:
@@ -8026,6 +8130,7 @@ def render_tool_selector() -> None:
             "icon": "👥",
             "desc": "Stel je basisopstelling visueel samen. Kies formatie, wijs spelers toe aan posities en sla reserves op.",
             "tabs": "Formatie · Veld · Reserves",
+            "new": True,
         },
         {
             "id": "TRAINING",
@@ -8033,6 +8138,7 @@ def render_tool_selector() -> None:
             "icon": "📅",
             "desc": "Plan trainingen met datum, tijd en thema. Bouw een oefeningen-bibliotheek en koppel ze aan sessies.",
             "tabs": "Sessies · Oefeningen",
+            "new": True,
         },
         {
             "id": "INJURIES",
@@ -8040,6 +8146,7 @@ def render_tool_selector() -> None:
             "icon": "🩹",
             "desc": "Registreer blessures per speler met ernst en verwachte terugkeer. Altijd inzicht in wie fit is.",
             "tabs": "Actief · Toevoegen · Historie",
+            "new": True,
         },
         {
             "id": "SCOUTING",
@@ -8047,6 +8154,7 @@ def render_tool_selector() -> None:
             "icon": "🔍",
             "desc": "Analyseer tegenstanders op formatie, speelstijl, corners en zwakke punten. Bouw een scoutingdossier.",
             "tabs": "Overzicht · Rapport",
+            "new": True,
         },
     ]
 
@@ -8057,8 +8165,10 @@ def render_tool_selector() -> None:
         cols = st.columns(3, gap="medium")
         for col, tool in zip(cols, row_tools):
             with col:
+                new_badge = '<div class="tool-card-new">Nieuw</div>' if tool.get("new") else ''
                 st.markdown(
                     f'<div class="tool-card">'
+                    f'{new_badge}'
                     f'<div class="tool-card-icon-wrap">{tool["icon"]}</div>'
                     f'<div class="tool-card-title">{tool["title"]}</div>'
                     f'<div class="tool-card-desc">{tool["desc"]}</div>'
