@@ -3319,6 +3319,7 @@ def render_hero_header() -> None:
         "TRAINING": "Trainingsplanning",
         "INJURIES": "Blessure tracker",
         "SCOUTING": "Tegenstander scouting",
+        "GOALS": "Seizoensdoelen",
     }
     if active_tool:
         subtitle = _tool_labels.get(active_tool, active_tool)
@@ -3417,6 +3418,8 @@ def render_navigation() -> None:
         screens = [("BLESSURES", "Blessure tracker", "🩹")]
     elif active_tool == "SCOUTING":
         screens = [("SCOUTING", "Scouting", "🔍")]
+    elif active_tool == "GOALS":
+        screens = [("GOALS", "Seizoensdoelen", "🎯")]
     else:
         screens = []
 
@@ -7389,6 +7392,17 @@ def render_selection_screen() -> None:
                 f'<b>Reserves:</b> {", ".join(reserves)}</div>',
                 unsafe_allow_html=True,
             )
+        if pos_player_map:
+            wa_text = whatsapp_text_selectie(wedstrijd_id, pos_player_map, reserves)
+            wa_url = _whatsapp_url(wa_text)
+            st.markdown(
+                f'<a href="{wa_url}" target="_blank" style="display:inline-flex;align-items:center;'
+                f'gap:8px;background:#25d36622;border:1px solid #25d36644;color:#25d366;'
+                f'padding:8px 16px;border-radius:10px;font-weight:600;font-size:13px;'
+                f'text-decoration:none;margin-top:12px;">'
+                f'<span style="font-size:18px;">💬</span> Selectie delen via WhatsApp</a>',
+                unsafe_allow_html=True,
+            )
 
 
 # ==================================================
@@ -7493,7 +7507,9 @@ def render_training_screen() -> None:
     import datetime as _dt
     st.markdown("### 📅 Trainingsplanning")
 
-    tab_plan, tab_oefeningen = st.tabs(["📋 Sessies", "🏃 Oefeningen bibliotheek"])
+    tab_plan, tab_aanwezig, tab_oefeningen, tab_export = st.tabs(
+        ["📋 Sessies", "✅ Aanwezigheid", "🏃 Oefeningen bibliotheek", "📄 PDF export"]
+    )
 
     # ─── TAB 1: Sessies ───
     with tab_plan:
@@ -7621,6 +7637,77 @@ def render_training_screen() -> None:
                         if o.get("materiaal"):
                             col3.metric("Materiaal", o["materiaal"])
 
+    # ─── TAB: Aanwezigheid ───
+    with tab_aanwezig:
+        trainingen_all = cloud_list_trainings(limit=50)
+        roster = _active_team_roster()
+        if not trainingen_all:
+            st.info("Nog geen trainingen gepland.")
+        elif not roster:
+            st.info("Voeg eerst spelers toe via het Wisselschema.")
+        else:
+            import datetime as _dt2
+            today = _dt2.date.today()
+            # Toon afgelopen + huidige trainingen voor aanwezigheid
+            verleden = [t for t in trainingen_all if t.get("datum", "") <= today.isoformat()]
+            if not verleden:
+                st.info("Nog geen trainingen geweest. Aanwezigheid bijhouden kan na de training.")
+            else:
+                gekozen_tr = st.selectbox(
+                    "Kies training",
+                    verleden,
+                    format_func=lambda t: f"{t.get('datum','')} — {t.get('thema','')} ({t.get('starttijd','')})",
+                    key="aanw_tr_sel"
+                )
+                training_id = gekozen_tr["id"]
+                aanwezig_records = cloud_get_attendance(training_id)
+                aanwezig_ids = {r["player_id"] for r in aanwezig_records}
+
+                sorted_roster = sorted(roster, key=lambda p: p["name"])
+                st.markdown(f"**Aanwezigheid voor: {gekozen_tr.get('datum','')} — {gekozen_tr.get('thema','')}**")
+
+                nieuw_aanwezig = []
+                cols = st.columns(2)
+                for i, speler in enumerate(sorted_roster):
+                    was_er = speler["id"] in aanwezig_ids
+                    aanw = cols[i % 2].checkbox(
+                        speler["name"], value=was_er, key=f"aanw_{training_id}_{speler['id']}"
+                    )
+                    if aanw:
+                        nieuw_aanwezig.append(speler["id"])
+
+                aanwezig_count = len(nieuw_aanwezig)
+                st.caption(f"{aanwezig_count} van {len(roster)} spelers aanwezig")
+
+                if st.button("💾 Aanwezigheid opslaan", type="primary", key="aanw_opslaan"):
+                    cloud_save_attendance(training_id, nieuw_aanwezig)
+                    st.success(f"Aanwezigheid opgeslagen — {aanwezig_count} spelers aanwezig!")
+                    st.rerun()
+
+    # ─── TAB: PDF Export ───
+    with tab_export:
+        st.subheader("Trainingsplan exporteren als PDF")
+        trainingen_pdf = cloud_list_trainings(limit=50)
+        oefeningen_pdf = cloud_list_exercises()
+        if not trainingen_pdf:
+            st.info("Nog geen trainingen om te exporteren.")
+        else:
+            if REPORTLAB_AVAILABLE:
+                pdf_bytes = generate_training_pdf(trainingen_pdf, oefeningen_pdf)
+                if pdf_bytes:
+                    team_name = st.session_state.get("active_team_name", "team")
+                    st.download_button(
+                        "📄 Download trainingsplan PDF",
+                        data=pdf_bytes,
+                        file_name=f"trainingsplan_{team_name}.pdf",
+                        mime="application/pdf",
+                        type="primary",
+                        use_container_width=True,
+                    )
+                    st.caption(f"{len(trainingen_pdf)} trainingen · {len(oefeningen_pdf)} oefeningen")
+            else:
+                st.warning("ReportLab niet beschikbaar.")
+
 
 def _render_training_card(t: dict) -> None:
     import datetime as _dt
@@ -7642,14 +7729,21 @@ def _render_training_card(t: dict) -> None:
     eind = t.get("eindtijd", "")[:5]
     tijd = f"{start}–{eind}" if start and eind else start
 
+    maand_kort = ["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"]
+    try:
+        dag_num = _dt.date.fromisoformat(datum_str).day
+        maand_str = maand_kort[_dt.date.fromisoformat(datum_str).month - 1]
+    except Exception:
+        dag_num = ""
+        maand_str = ""
+
     st.markdown(
         f'<div style="background:#0f1624;border:1px solid #1a2540;border-radius:12px;'
-        f'padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:14px;">'
+        f'padding:14px 18px;margin-bottom:4px;display:flex;align-items:center;gap:14px;">'
         f'<div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);'
         f'border-radius:10px;padding:10px 14px;text-align:center;min-width:54px;">'
-        f'<div style="color:#3b82f6;font-weight:800;font-size:16px;">{d.day if "d" in dir() else ""}</div>'
-        f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;">'
-        f'{["jan","feb","mrt","apr","mei","jun","jul","aug","sep","okt","nov","dec"][_dt.date.fromisoformat(datum_str).month-1] if datum_str else ""}</div>'
+        f'<div style="color:#3b82f6;font-weight:800;font-size:16px;">{dag_num}</div>'
+        f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;">{maand_str}</div>'
         f'</div>'
         f'<div style="flex:1;">'
         f'<div style="color:#f1f5f9;font-weight:600;font-size:14px;">{icon} {t.get("thema","Training")}</div>'
@@ -7658,9 +7752,20 @@ def _render_training_card(t: dict) -> None:
         f'</div>',
         unsafe_allow_html=True,
     )
-    if st.button("🗑️", key=f"del_tr_{t['id']}", help="Verwijder"):
-        cloud_delete_training(t["id"])
-        st.rerun()
+    col_wa, col_del = st.columns([4, 1])
+    with col_wa:
+        wa_url = _whatsapp_url(whatsapp_text_training(t))
+        st.markdown(
+            f'<a href="{wa_url}" target="_blank" style="display:inline-flex;align-items:center;'
+            f'gap:6px;background:#25d36614;border:1px solid #25d36630;color:#25d366;'
+            f'padding:5px 12px;border-radius:8px;font-weight:600;font-size:12px;'
+            f'text-decoration:none;">💬 Deel via WhatsApp</a>',
+            unsafe_allow_html=True,
+        )
+    with col_del:
+        if st.button("🗑️", key=f"del_tr_{t['id']}", help="Verwijder"):
+            cloud_delete_training(t["id"])
+            st.rerun()
 
 
 # ==================================================
@@ -7742,7 +7847,7 @@ def render_injury_screen() -> None:
     cols[2].metric("👥 Totaal squad", len(roster))
 
     st.divider()
-    tab_actief, tab_add, tab_historie = st.tabs(["🔴 Actieve blessures", "➕ Toevoegen", "📋 Historie"])
+    tab_actief, tab_add, tab_historie, tab_pdf = st.tabs(["🔴 Actieve blessures", "➕ Toevoegen", "📋 Historie", "📄 PDF"])
 
     with tab_actief:
         if not actieve_blessures:
@@ -7830,6 +7935,28 @@ def render_injury_screen() -> None:
                     unsafe_allow_html=True,
                 )
 
+    with tab_pdf:
+        st.subheader("Blessurerapport exporteren")
+        alle_bl = cloud_list_injuries(active_only=False)
+        if not alle_bl:
+            st.info("Nog geen blessures om te exporteren.")
+        elif REPORTLAB_AVAILABLE:
+            pdf_bytes = generate_blessures_pdf(alle_bl)
+            if pdf_bytes:
+                team_name = st.session_state.get("active_team_name", "team")
+                st.download_button(
+                    "📄 Download blessurerapport PDF",
+                    data=pdf_bytes,
+                    file_name=f"blessurerapport_{team_name}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True,
+                )
+                actief_count = len([b for b in alle_bl if not b.get("datum_herstel")])
+                st.caption(f"{actief_count} actieve blessures · {len(alle_bl) - actief_count} hersteld")
+        else:
+            st.warning("ReportLab niet beschikbaar.")
+
 
 # ==================================================
 # SCOUTING — tegenstander analyse
@@ -7880,6 +8007,25 @@ def render_scouting_screen() -> None:
     st.markdown("### 🔍 Tegenstander scouting")
 
     tab_overzicht, tab_nieuw = st.tabs(["📋 Overzicht", "➕ Nieuw rapport"])
+    # PDF download knop bovenaan
+    if REPORTLAB_AVAILABLE:
+        rapporten_all = cloud_list_scouting()
+        if rapporten_all:
+            gekozen_sc = st.selectbox(
+                "Exporteer rapport als PDF",
+                rapporten_all,
+                format_func=lambda r: f"{r.get('tegenstander','?')} · {r.get('wedstrijd_datum','')}",
+                key="sc_pdf_sel"
+            )
+            pdf_sc = generate_scouting_pdf(gekozen_sc)
+            if pdf_sc:
+                teg_naam = gekozen_sc.get("tegenstander", "scouting").replace(" ", "_")
+                st.download_button(
+                    "📄 Download scoutingrapport PDF",
+                    data=pdf_sc,
+                    file_name=f"scouting_{teg_naam}.pdf",
+                    mime="application/pdf",
+                )
 
     with tab_nieuw:
         with st.form("scouting_form"):
@@ -7957,6 +8103,426 @@ def render_scouting_screen() -> None:
                         if r.get("aanbevolen_aanpak"):
                             st.markdown("**🎯 Aanpak voor ons:**")
                             st.success(r["aanbevolen_aanpak"])
+
+
+# ==================================================
+# WHATSAPP DELEN
+# ==================================================
+def _whatsapp_url(text: str) -> str:
+    import urllib.parse
+    return f"https://wa.me/?text={urllib.parse.quote(text)}"
+
+
+def whatsapp_text_selectie(wedstrijd_id: str, pos_player_map: dict, reserves: list) -> str:
+    team_name = st.session_state.get("active_team_name", "Team")
+    mid_label = unscope_match_id(wedstrijd_id)
+    lines = [f"⚽ *Selectie {team_name}*", f"📅 Wedstrijd: {mid_label}", ""]
+    lines.append("*Basisopstelling:*")
+    for pos, naam in pos_player_map.items():
+        lines.append(f"  {pos}: {naam}")
+    if reserves:
+        lines.append("")
+        lines.append("*Reserves:*")
+        for r in reserves:
+            lines.append(f"  • {r}")
+    lines.append("\n_Via Coach Studio_")
+    return "\n".join(lines)
+
+
+def whatsapp_text_training(t: dict) -> str:
+    team_name = st.session_state.get("active_team_name", "Team")
+    lines = [
+        f"🏑 *Training {team_name}*",
+        f"📅 {t.get('datum', '')} · {t.get('starttijd', '')}–{t.get('eindtijd', '')}",
+    ]
+    if t.get("locatie"):
+        lines.append(f"📍 {t['locatie']}")
+    if t.get("thema"):
+        lines.append(f"🎯 Thema: {t['thema']}")
+    if t.get("notities"):
+        lines.append(f"📝 {t['notities']}")
+    lines.append("\n_Via Coach Studio_")
+    return "\n".join(lines)
+
+
+# ==================================================
+# AANWEZIGHEIDSREGISTRATIE
+# ==================================================
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_attendance(team_id: str, training_id: str) -> list:
+    client = get_supabase_client()
+    if not team_id or not training_id or client is None:
+        return []
+    try:
+        r = client.table("training_attendance").select("*")\
+            .eq("team_id", team_id).eq("training_id", training_id).execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def cloud_get_attendance(training_id: str) -> list:
+    tid = _active_team_id()
+    return _fetch_attendance(tid or "", training_id)
+
+
+def cloud_save_attendance(training_id: str, aanwezige_ids: list) -> None:
+    tid = _active_team_id()
+    client = get_supabase_client()
+    if not tid or not client:
+        return
+    try:
+        client.table("training_attendance").delete()\
+            .eq("team_id", tid).eq("training_id", training_id).execute()
+        if aanwezige_ids:
+            roster = _active_team_roster()
+            id_to_name = {p["id"]: p["name"] for p in roster}
+            rows = [
+                {"id": str(uuid.uuid4()), "team_id": tid, "training_id": training_id,
+                 "player_id": pid, "player_name": id_to_name.get(pid, "?")}
+                for pid in aanwezige_ids
+            ]
+            client.table("training_attendance").insert(rows).execute()
+        _fetch_attendance.clear()
+        mark_cloud_ok()
+    except Exception as err:
+        log_cloud_error("aanwezigheid opslaan", err)
+
+
+# ==================================================
+# PDF EXPORTS — Training, Blessures, Scouting
+# ==================================================
+def _pdf_styles():
+    """Gedeelde ReportLab stijlen."""
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors as _c
+    styles = getSampleStyleSheet()
+    navy = _c.HexColor("#080c18")
+    blue = _c.HexColor("#3b82f6")
+    white = _c.white
+    gray = _c.HexColor("#64748b")
+
+    title_style = ParagraphStyle("cs_title", parent=styles["Title"],
+        fontSize=22, textColor=blue, spaceAfter=4, fontName="Helvetica-Bold")
+    sub_style = ParagraphStyle("cs_sub", parent=styles["Normal"],
+        fontSize=10, textColor=gray, spaceAfter=16)
+    h2_style = ParagraphStyle("cs_h2", parent=styles["Heading2"],
+        fontSize=13, textColor=blue, spaceBefore=14, spaceAfter=6, fontName="Helvetica-Bold")
+    body_style = ParagraphStyle("cs_body", parent=styles["Normal"],
+        fontSize=10, textColor=_c.HexColor("#1e293b"), leading=14, spaceAfter=4)
+    label_style = ParagraphStyle("cs_label", parent=styles["Normal"],
+        fontSize=9, textColor=gray, fontName="Helvetica-Bold",
+        textTransform="uppercase", spaceAfter=2)
+    return {"title": title_style, "sub": sub_style, "h2": h2_style,
+            "body": body_style, "label": label_style}
+
+
+def generate_training_pdf(trainingen: list, oefeningen: list) -> bytes | None:
+    if not REPORTLAB_AVAILABLE:
+        return None
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors as _c
+    from io import BytesIO
+    import datetime as _dt
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm,
+                             topMargin=20*mm, bottomMargin=20*mm)
+    S = _pdf_styles()
+    team_name = st.session_state.get("active_team_name", "Team")
+    story = [
+        Paragraph("Coach Studio", S["title"]),
+        Paragraph(f"Trainingsplanning — {team_name} · {_dt.date.today().strftime('%d %b %Y')}", S["sub"]),
+        HRFlowable(width="100%", thickness=1, color=_c.HexColor("#3b82f6"), spaceAfter=12),
+    ]
+
+    oe_map = {o["id"]: o for o in oefeningen}
+
+    for t in trainingen:
+        story.append(Paragraph(f"{t.get('datum','')} · {t.get('thema','')}", S["h2"]))
+        info = f"{t.get('starttijd','')}–{t.get('eindtijd','')}  |  📍 {t.get('locatie','—')}"
+        story.append(Paragraph(info, S["body"]))
+        if t.get("notities"):
+            story.append(Paragraph(t["notities"], S["body"]))
+        oef_ids = t.get("oefening_ids") or []
+        if oef_ids and oe_map:
+            story.append(Paragraph("Oefeningen:", S["label"]))
+            for oid in oef_ids:
+                o = oe_map.get(oid)
+                if o:
+                    story.append(Paragraph(f"• {o['naam']} — {o.get('categorie','')} · {o.get('duur_minuten','')} min", S["body"]))
+        story.append(Spacer(1, 6))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def generate_blessures_pdf(blessures: list) -> bytes | None:
+    if not REPORTLAB_AVAILABLE:
+        return None
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors as _c
+    import datetime as _dt
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm,
+                             topMargin=20*mm, bottomMargin=20*mm)
+    S = _pdf_styles()
+    team_name = st.session_state.get("active_team_name", "Team")
+    story = [
+        Paragraph("Coach Studio", S["title"]),
+        Paragraph(f"Blessurerapport — {team_name} · {_dt.date.today().strftime('%d %b %Y')}", S["sub"]),
+        HRFlowable(width="100%", thickness=1, color=_c.HexColor("#3b82f6"), spaceAfter=12),
+    ]
+
+    actief = [b for b in blessures if not b.get("datum_herstel")]
+    herstel = [b for b in blessures if b.get("datum_herstel")]
+
+    story.append(Paragraph(f"Actieve blessures ({len(actief)})", S["h2"]))
+    if not actief:
+        story.append(Paragraph("Geen actieve blessures.", S["body"]))
+    for b in actief:
+        story.append(Paragraph(f"<b>{b.get('player_name','?')}</b> — {b.get('blessure_type','')}", S["body"]))
+        story.append(Paragraph(f"Ernst: {b.get('ernst','')} | Sinds: {b.get('datum_start','')} | Terug: {b.get('verwachte_terugkeer','?')}", S["body"]))
+        if b.get("beschrijving"):
+            story.append(Paragraph(b["beschrijving"], S["body"]))
+        story.append(Spacer(1, 6))
+
+    if herstel:
+        story.append(Paragraph(f"Hersteld ({len(herstel)})", S["h2"]))
+        for b in herstel:
+            story.append(Paragraph(f"<b>{b.get('player_name','?')}</b> — {b.get('blessure_type','')} · Hersteld: {b.get('datum_herstel','')}", S["body"]))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def generate_scouting_pdf(rapport: dict) -> bytes | None:
+    if not REPORTLAB_AVAILABLE:
+        return None
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors as _c
+    import datetime as _dt
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm,
+                             topMargin=20*mm, bottomMargin=20*mm)
+    S = _pdf_styles()
+    team_name = st.session_state.get("active_team_name", "Team")
+    teg = rapport.get("tegenstander", "?")
+    story = [
+        Paragraph("Coach Studio", S["title"]),
+        Paragraph(f"Scoutingrapport: {teg} — {team_name} · {_dt.date.today().strftime('%d %b %Y')}", S["sub"]),
+        HRFlowable(width="100%", thickness=1, color=_c.HexColor("#3b82f6"), spaceAfter=12),
+    ]
+
+    velden = [
+        ("Formatie", "formatie"), ("Speelstijl", "speelstijl"),
+        ("💪 Sterke punten", "sterke_punten"), ("⚠️ Zwakke punten", "zwakke_punten"),
+        ("🔱 Corners aanval", "corners_aanval"), ("🛡️ Corners verdediging", "corners_verdediging"),
+        ("🎯 Aanbevolen aanpak", "aanbevolen_aanpak"),
+    ]
+    for label, key in velden:
+        val = rapport.get(key, "")
+        if val:
+            story.append(Paragraph(label, S["label"]))
+            story.append(Paragraph(val, S["body"]))
+            story.append(Spacer(1, 6))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+# ==================================================
+# SEIZOENSDOELEN
+# ==================================================
+DOEL_CATEGORIEEN = ["Resultaten", "Aanval", "Verdediging", "Teamontwikkeling", "Individueel", "Anders"]
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _fetch_goals(team_id: str) -> list:
+    client = get_supabase_client()
+    if not team_id or client is None:
+        return []
+    try:
+        r = client.table("season_goals").select("*").eq("team_id", team_id)\
+            .order("created_at").execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def cloud_list_goals() -> list:
+    tid = _active_team_id()
+    result = _fetch_goals(tid or "")
+    if result is not None:
+        mark_cloud_ok()
+    return result or []
+
+
+def cloud_save_goal(data: dict) -> None:
+    tid = _active_team_id()
+    client = get_supabase_client()
+    if not tid or client is None:
+        return
+    try:
+        data["team_id"] = tid
+        if not data.get("id"):
+            data["id"] = str(uuid.uuid4())
+        client.table("season_goals").upsert(data, on_conflict="id").execute()
+        _fetch_goals.clear()
+        mark_cloud_ok()
+    except Exception as err:
+        log_cloud_error("doel opslaan", err)
+
+
+def cloud_update_goal(goal_id: str, updates: dict) -> None:
+    tid = _active_team_id()
+    client = get_supabase_client()
+    if not tid or client is None:
+        return
+    try:
+        client.table("season_goals").update(updates).eq("id", goal_id).eq("team_id", tid).execute()
+        _fetch_goals.clear()
+        mark_cloud_ok()
+    except Exception as err:
+        log_cloud_error("doel bijwerken", err)
+
+
+def cloud_delete_goal(goal_id: str) -> None:
+    tid = _active_team_id()
+    client = get_supabase_client()
+    if not tid or client is None:
+        return
+    try:
+        client.table("season_goals").delete().eq("id", goal_id).eq("team_id", tid).execute()
+        _fetch_goals.clear()
+        mark_cloud_ok()
+    except Exception as err:
+        log_cloud_error("doel verwijderen", err)
+
+
+def render_goals_screen() -> None:
+    st.markdown("### 🎯 Seizoensdoelen")
+
+    doelen = cloud_list_goals()
+    voltooid = [d for d in doelen if d.get("voltooid")]
+    actief = [d for d in doelen if not d.get("voltooid")]
+
+    # ── KPI strip ──
+    c1, c2, c3 = st.columns(3)
+    c1.metric("🎯 Totaal doelen", len(doelen))
+    c2.metric("✅ Behaald", len(voltooid))
+    c3.metric("🔄 In uitvoering", len(actief))
+
+    st.divider()
+    tab_actief, tab_nieuw, tab_voltooid = st.tabs(["🔄 Actief", "➕ Nieuw doel", "✅ Behaald"])
+
+    # ── TAB: Actieve doelen ──
+    with tab_actief:
+        if not actief:
+            st.info("Nog geen seizoensdoelen. Voeg er een toe via '➕ Nieuw doel'.")
+        for d in actief:
+            doel_val = float(d.get("doel_waarde") or 1)
+            huidig_val = float(d.get("huidige_waarde") or 0)
+            pct = min(int((huidig_val / doel_val) * 100), 100) if doel_val > 0 else 0
+            eenheid = d.get("eenheid", "")
+            cat = d.get("categorie", "")
+
+            cat_colors = {
+                "Resultaten": "#3b82f6", "Aanval": "#10b981", "Verdediging": "#f59e0b",
+                "Teamontwikkeling": "#8b5cf6", "Individueel": "#f43f5e", "Anders": "#64748b",
+            }
+            color = cat_colors.get(cat, "#3b82f6")
+
+            st.markdown(
+                f'<div style="background:#0f1624;border:1px solid #1a2540;border-left:3px solid {color};'
+                f'border-radius:12px;padding:16px 18px;margin-bottom:10px;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
+                f'<div><span style="color:#f1f5f9;font-weight:700;font-size:15px;">{d.get("titel","")}</span>'
+                f'<span style="background:{color}22;color:{color};padding:2px 8px;border-radius:6px;'
+                f'font-size:10px;font-weight:700;margin-left:10px;">{cat}</span></div>'
+                f'<div style="color:#94a3b8;font-size:13px;font-weight:700;">'
+                f'{huidig_val:.0f} / {doel_val:.0f} {eenheid}</div>'
+                f'</div>'
+                f'<div style="margin-top:10px;background:#1a2540;border-radius:6px;height:8px;">'
+                f'<div style="background:{color};width:{pct}%;height:8px;border-radius:6px;'
+                f'transition:width 0.4s ease;"></div></div>'
+                f'<div style="color:#64748b;font-size:11px;margin-top:4px;">{pct}% behaald</div>'
+                f'{"<div style=color:#94a3b8;font-size:12px;margin-top:6px;>" + d.get("beschrijving","") + "</div>" if d.get("beschrijving") else ""}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            col_prog, col_vol, col_del = st.columns([2, 1, 1])
+            with col_prog:
+                nieuwe_waarde = st.number_input(
+                    "Huidige stand bijwerken",
+                    min_value=0.0, max_value=float(doel_val) * 2,
+                    value=float(huidig_val), step=1.0,
+                    key=f"goal_prog_{d['id']}",
+                    label_visibility="collapsed",
+                )
+            with col_vol:
+                if st.button("📈 Bijwerken", key=f"goal_upd_{d['id']}", use_container_width=True):
+                    cloud_update_goal(d["id"], {"huidige_waarde": nieuwe_waarde})
+                    st.rerun()
+            with col_del:
+                if st.button("✅ Behaald!", key=f"goal_done_{d['id']}", use_container_width=True, type="primary"):
+                    cloud_update_goal(d["id"], {"voltooid": True, "huidige_waarde": doel_val})
+                    st.success(f"🎉 '{d.get('titel','')}' behaald!")
+                    st.rerun()
+
+    # ── TAB: Nieuw doel ──
+    with tab_nieuw:
+        with st.form("goal_form"):
+            titel = st.text_input("Titel", placeholder="Bijv. 70% van de wedstrijden winnen", key="gf_titel")
+            beschrijving = st.text_area("Beschrijving (optioneel)", height=70, key="gf_desc",
+                                         placeholder="Waarom is dit doel belangrijk?")
+            c1, c2 = st.columns(2)
+            categorie = c1.selectbox("Categorie", DOEL_CATEGORIEEN, key="gf_cat")
+            eenheid = c2.text_input("Eenheid", placeholder="bijv. %, goals, punten", key="gf_eenheid")
+            c3, c4 = st.columns(2)
+            doel_waarde = c3.number_input("Doelwaarde", min_value=1.0, value=10.0, step=1.0, key="gf_doel")
+            start_waarde = c4.number_input("Beginstand", min_value=0.0, value=0.0, step=1.0, key="gf_start")
+            toevoegen = st.form_submit_button("🎯 Doel toevoegen", type="primary")
+
+        if toevoegen:
+            if not titel.strip():
+                st.error("Vul een titel in.")
+            else:
+                cloud_save_goal({
+                    "titel": titel.strip(), "beschrijving": beschrijving.strip(),
+                    "categorie": categorie, "eenheid": eenheid.strip(),
+                    "doel_waarde": float(doel_waarde), "huidige_waarde": float(start_waarde),
+                    "voltooid": False,
+                })
+                st.success("Doel toegevoegd!")
+                st.rerun()
+
+    # ── TAB: Behaalde doelen ──
+    with tab_voltooid:
+        if not voltooid:
+            st.info("Nog geen doelen behaald — blijf gaan! 💪")
+        for d in voltooid:
+            st.markdown(
+                f'<div style="background:#0f1624;border:1px solid #10b98133;border-left:3px solid #10b981;'
+                f'border-radius:12px;padding:14px 18px;margin-bottom:8px;opacity:0.85;">'
+                f'<span style="color:#34d399;font-size:18px;">✅</span> '
+                f'<span style="color:#f1f5f9;font-weight:700;">{d.get("titel","")}</span>'
+                f'<span style="color:#64748b;font-size:12px;margin-left:10px;">{d.get("categorie","")}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            if st.button("↩ Heropen", key=f"goal_reopen_{d['id']}", help="Zet terug naar actief"):
+                cloud_update_goal(d["id"], {"voltooid": False})
+                st.rerun()
 
 
 # ==================================================
@@ -8182,6 +8748,14 @@ def render_tool_selector() -> None:
             "tabs": "Overzicht · Rapport",
             "new": True,
         },
+        {
+            "id": "GOALS",
+            "title": "Seizoensdoelen",
+            "icon": "🎯",
+            "desc": "Stel doelen voor het seizoen in, houd de voortgang bij met visuele progressiebars en vier behaalde doelen.",
+            "tabs": "Actief · Nieuw · Behaald",
+            "new": True,
+        },
     ]
 
     # Grid — 3 kolommen
@@ -8328,5 +8902,7 @@ elif tool == "INJURIES":
     render_injury_screen()
 elif tool == "SCOUTING":
     render_scouting_screen()
+elif tool == "GOALS":
+    render_goals_screen()
 else:
     render_tool_selector()
